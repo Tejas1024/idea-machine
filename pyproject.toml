@@ -1,0 +1,17 @@
+[project]
+name = "idea-machine"
+version = "0.0.0"
+description = "Tejas's gold trading ideas in plain words, tested on 2016-2023 gold, reported in rupees."
+requires-python = ">=3.13"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra --strict-markers"
+markers = [
+    "data: needs the 3 price files in old/build/data/ (💻); skipped when they are missing",
+    "mt5: needs Windows + the MetaTrader5 package (🪟); skipped when missing",
+    "search_model: needs the document search's local model (requirements-search.txt); skipped when missing",
+    "news: needs data/news/events.parquet (python -m machine.news.build, after the MT5 export); skipped when missing",
+    "private: needs his private files (strategy/, old/, plan/ and data/ beyond the public copy); skipped in the public copy (PRIVATE-PARTS.md)",
+]

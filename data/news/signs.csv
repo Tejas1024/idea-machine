@@ -1,0 +1,144 @@
+event,kind,report,rank,method,sign,good_for_dollar,ff_name,why
+Nonfarm Payrolls,jobs,Jobs report,1,forecast,1,higher,Non-Farm Employment Change,More jobs = a stronger economy = the Fed keeps rates higher = good for the dollar. The report's number (the headline payrolls).
+Unemployment Rate,jobs,Jobs report,2,forecast,-1,lower,Unemployment Rate,Turned round: a LOWER jobless rate is the good news.
+Average Hourly Earnings m/m,jobs,Jobs report,3,forecast,1,higher,Average Hourly Earnings m/m,Faster pay rises = more inflation ahead = higher rates = good for the dollar.
+Average Hourly Earnings y/y,jobs,Jobs report,4,forecast,1,higher,Average Hourly Earnings y/y,Same as the monthly pay number.
+Private Nonfarm Payrolls,jobs,Jobs report,5,forecast,1,higher,Private Non-Farm Employment Change,Same as payrolls: more jobs is good news.
+U6 Unemployment Rate,jobs,Jobs report,6,forecast,-1,lower,U6 Unemployment Rate,Turned round like the unemployment rate: lower is good news.
+Participation Rate,jobs,Jobs report,7,flagged,0,none,,No agreed direction: more people looking for work is a bigger workforce but slower pay rises. Flagged - not scored.
+ADP Nonfarm Employment Change,jobs,ADP report,1,forecast,1,higher,ADP Non-Farm Employment Change,A private count of new jobs: more jobs is good news.
+Initial Jobless Claims,jobs,Jobless claims,1,forecast,-1,lower,Unemployment Claims,Turned round: MORE people asking for jobless money is bad news.
+Continuing Jobless Claims,jobs,Jobless claims,2,forecast,-1,lower,Continuing Claims,Turned round like the first-time claims.
+JOLTS Job Openings,jobs,JOLTS,1,forecast,1,higher,JOLTS Job Openings,More open jobs = a tight job market = good news.
+Employment Cost Index q/q,jobs,Employment cost,1,forecast,1,higher,Employment Cost Index q/q,Pay costs rising faster = more inflation ahead = good for the dollar.
+Fed Labor Market Conditions Index,jobs,Fed jobs index,1,forecast,1,higher,Labor Market Conditions Index m/m,The Fed's own job-market reading: higher is good news.
+ISM Manufacturing PMI,growth,ISM manufacturing,1,forecast,1,higher,ISM Manufacturing PMI,A survey of factory managers: higher = factories busier = good news. The report's number.
+ISM Manufacturing Prices Paid,inflation,ISM manufacturing,2,forecast,1,higher,ISM Manufacturing Prices,Factories paying more = inflation ahead = good for the dollar.
+ISM Manufacturing Employment,jobs,ISM manufacturing,3,forecast,1,higher,,Factories hiring more is good news.
+ISM Non-Manufacturing PMI,growth,ISM services,1,forecast,1,higher,ISM Services PMI|ISM Non-Manufacturing PMI,A survey of service firms (most of the US economy): higher is good news. The report's number.
+ISM Non-Manufacturing Prices Paid,inflation,ISM services,2,forecast,1,higher,ISM Services Prices|ISM Non-Manufacturing Prices,Service firms paying more = inflation ahead = good for the dollar.
+ISM Non-Manufacturing Employment,jobs,ISM services,3,forecast,1,higher,,Service firms hiring more is good news.
+Core CPI m/m,inflation,CPI,1,forecast,1,higher,Core CPI m/m,"Prices rising faster = the Fed keeps rates higher = good for the dollar. CORE is the report's number: it leaves out food and fuel, which jump with oil and the weather; the Fed says it looks through those, so core tells what the Fed will do. (Claude's reading - Tejas has not said.)"
+CPI m/m,inflation,CPI,2,forecast,1,higher,CPI m/m,The headline price rise (food and fuel included): faster is good for the dollar. Not the report's number - see Core CPI m/m.
+CPI y/y,inflation,CPI,3,forecast,1,higher,CPI y/y,Prices against a year ago: higher is good for the dollar.
+Core CPI y/y,inflation,CPI,4,forecast,1,higher,Core CPI y/y,Core prices against a year ago: higher is good for the dollar.
+CPI,inflation,CPI,5,forecast,1,higher,,The price index level itself: higher is good for the dollar.
+Core CPI n.s.a. m/m,inflation,CPI,6,flagged,0,none,,Not season-adjusted - nobody forecasts it. Flagged - not scored.
+Core PPI m/m,inflation,PPI,1,forecast,1,higher,Core PPI m/m,"Prices factories and firms charge, without food and fuel: faster is good for the dollar. Core for the same reason as CPI. (Claude's reading.)"
+PPI m/m,inflation,PPI,2,forecast,1,higher,PPI m/m,The same with food and fuel: faster is good for the dollar.
+Core PCE Price Index m/m,inflation,PCE,1,forecast,1,higher,Core PCE Price Index m/m,"The Fed's own favourite price measure, without food and fuel: faster is good for the dollar. Core for the same reason as CPI. (Claude's reading.)"
+Core PCE Price Index y/y,inflation,PCE,2,forecast,1,higher,Core PCE Price Index y/y,Against a year ago: higher is good for the dollar.
+PCE Price Index m/m,inflation,PCE,3,forecast,1,higher,PCE Price Index m/m,With food and fuel: faster is good for the dollar.
+PCE Price Index y/y,inflation,PCE,4,forecast,1,higher,PCE Price Index y/y,Against a year ago: higher is good for the dollar.
+Personal Spending m/m,growth,PCE,5,forecast,1,higher,Personal Spending m/m,People spending more = a stronger economy = good news.
+Import Price Index m/m,inflation,Import prices,1,forecast,1,higher,Import Prices m/m,Imports costing more = inflation ahead = good for the dollar.
+Export Price Index m/m,inflation,Import prices,2,forecast,1,higher,Export Prices m/m,Exports priced higher = inflation ahead = good for the dollar.
+Unit Labor Costs q/q,inflation,Productivity,2,forecast,1,higher,Prelim Unit Labor Costs q/q|Revised Unit Labor Costs q/q,Labour cost per unit made rising = inflation ahead = good for the dollar.
+Nonfarm Productivity q/q,growth,Productivity,1,forecast,-1,lower,Prelim Nonfarm Productivity q/q|Revised Nonfarm Productivity q/q,Turned round: more made per hour = cheaper labour = less inflation = fewer rate rises. Forex Factory (his calendar) marks it this way on every release; Claude first had it the other way (L12b.1 check).
+Michigan Consumer Sentiment,growth,Michigan survey,1,forecast,1,higher,Prelim UoM Consumer Sentiment|Revised UoM Consumer Sentiment,Shoppers feeling better = more spending ahead = good news.
+Michigan Consumer Expectations,growth,Michigan survey,2,forecast,1,higher,,Shoppers expecting better times is good news.
+Michigan Inflation Expectations,inflation,Michigan survey,3,forecast,1,higher,Prelim UoM Inflation Expectations|Revised UoM Inflation Expectations,Shoppers expecting faster price rises = the Fed stays tough = good for the dollar.
+Michigan 5-Year Inflation Expectations,inflation,Michigan survey,4,forecast,1,higher,,The same over five years: higher is good for the dollar.
+GDP q/q,growth,GDP,1,forecast,1,higher,Advance GDP q/q|Prelim GDP q/q|Final GDP q/q,The whole economy's growth: faster is good news. The report's number.
+GDP Sales q/q,growth,GDP,2,forecast,1,higher,,Growth leaving out stock-building: faster is good news.
+Real PCE q/q,growth,GDP,3,forecast,1,higher,,People's spending inside GDP: faster is good news.
+Retail Sales m/m,growth,Retail sales,1,forecast,1,higher,Retail Sales m/m,Shops selling more = a stronger economy = good news. The report's number.
+Core Retail Sales m/m,growth,Retail sales,2,forecast,1,higher,Core Retail Sales m/m,Shop sales without cars: more is good news.
+Retail Control m/m,growth,Retail sales,3,forecast,1,higher,,The part of shop sales that feeds GDP: more is good news.
+Goods Trade Balance,growth,Advance indicators,1,forecast,1,higher,Goods Trade Balance|Advance Goods Trade Balance,Higher = a smaller trade gap (less money leaving the US) = good for the dollar.
+Retail Inventories m/m,growth,Advance indicators,2,flagged,0,none,,"Forex Factory has no row for it (not in his calendar), so no forecast. Flagged - not scored. Would be turned round like business inventories."
+Retail Inventories excl. Autos m/m,growth,Advance indicators,3,flagged,0,none,,The same without cars: no Forex Factory row. Flagged - not scored.
+Business Inventories m/m,growth,Business inventories,1,forecast,-1,lower,Business Inventories m/m,Turned round: MORE goods piling up in firms = sales weaker than hoped. Forex Factory (his calendar) marks it this way on every release; Claude first had it the other way (L12b.1 check).
+Durable Goods Orders m/m,growth,Durable goods,1,forecast,1,higher,Durable Goods Orders m/m,Orders for long-lasting goods up = firms investing = good news. The report's number.
+Core Durable Goods Orders m/m,growth,Durable goods,2,forecast,1,higher,Core Durable Goods Orders m/m,The same without planes and cars: more is good news.
+Factory Orders m/m,growth,Factory orders,1,forecast,1,higher,Factory Orders m/m,More orders to factories is good news.
+Trade Balance,growth,Trade balance,1,forecast,1,higher,Trade Balance,Higher = a smaller trade gap = good for the dollar. The report's number.
+Exports,growth,Trade balance,2,flagged,0,none,,Part of the trade balance; no forecast to compare with. Flagged - not scored.
+Imports,growth,Trade balance,3,flagged,0,none,,Part of the trade balance; no forecast to compare with. Flagged - not scored.
+Current Account,growth,Current account,1,forecast,1,higher,Current Account,Higher = less money leaving the US = good for the dollar.
+Fed Industrial Production m/m,growth,Industrial production,1,forecast,1,higher,Industrial Production m/m,Factories and mines making more is good news.
+Fed Industrial Production y/y,growth,Industrial production,2,forecast,1,higher,,Against a year ago: more is good news.
+Fed Consumer Credit m/m,growth,Consumer credit,1,forecast,1,higher,Consumer Credit m/m,People borrowing more = more spending ahead = good news (the usual reading).
+S&P Global Manufacturing PMI,growth,S&P Global PMI,1,forecast,1,higher,Flash Manufacturing PMI|Final Manufacturing PMI,A survey of factory buyers: higher is good news.
+S&P Global Services PMI,growth,S&P Global PMI,2,forecast,1,higher,Flash Services PMI|Final Services PMI,A survey of service firms: higher is good news.
+S&P Global Composite PMI,growth,S&P Global PMI,3,forecast,1,higher,,Factories and services together: higher is good news.
+MNI Chicago Business Barometer,growth,Chicago PMI,1,forecast,1,higher,Chicago PMI,A survey of Chicago firms: higher is good news.
+Philadelphia Fed Manufacturing Index,growth,Philly Fed,1,forecast,1,higher,Philly Fed Manufacturing Index,A survey of factories near Philadelphia: higher is good news.
+Philadelphia Fed Employment,jobs,Philly Fed,2,forecast,1,higher,,Those factories hiring more is good news.
+NY Fed Empire State Manufacturing Index,growth,Empire State,1,forecast,1,higher,Empire State Manufacturing Index,A survey of New York factories: higher is good news.
+CB Consumer Confidence Index,growth,CB confidence,1,forecast,1,higher,CB Consumer Confidence,Shoppers feeling better is good news.
+CB Leading Economic Index m/m,growth,CB leading index,1,forecast,1,higher,CB Leading Index m/m,A mix of early signs of growth: higher is good news.
+Housing Starts,housing,Housing starts,1,forecast,1,higher,Housing Starts,More new homes started = a stronger economy = good news. The report's number.
+Building Permits,housing,Housing starts,2,forecast,1,higher,Building Permits,More permits to build = more homes ahead = good news.
+Housing Starts m/m,housing,Housing starts,3,forecast,1,higher,,The same as a change on the month.
+Existing Home Sales,housing,Existing home sales,1,forecast,1,higher,Existing Home Sales,More homes sold is good news.
+Existing Home Sales m/m,housing,Existing home sales,2,forecast,1,higher,,The same as a change on the month.
+New Home Sales,housing,New home sales,1,forecast,1,higher,New Home Sales,More new homes sold is good news.
+New Home Sales m/m,housing,New home sales,2,forecast,1,higher,,The same as a change on the month.
+Pending Home Sales m/m,housing,Pending home sales,1,forecast,1,higher,Pending Home Sales m/m,More home sales signed is good news.
+Construction Spending m/m,housing,Construction spending,1,forecast,1,higher,Construction Spending m/m,More spent on building is good news.
+S&P/CS HPI Composite-20 y/y,housing,Home prices,1,forecast,1,higher,S&P/CS Composite-20 HPI y/y,Home prices rising faster = a stronger economy = good news.
+S&P/CS HPI Composite-20 n.s.a. m/m,housing,Home prices,2,forecast,1,higher,,The same on the month (not season-adjusted).
+Federal Budget Balance,other,Federal budget,1,forecast,1,higher,Federal Budget Balance,Higher = a smaller government deficit = good for the dollar (the usual reading).
+TIC Net Long-Term Transactions,positions,TIC,1,forecast,1,higher,TIC Long-Term Purchases,Higher = foreigners buying more US bonds and shares = more demand for dollars.
+Fed Interest Rate Decision,fed,FOMC decision,1,2y yield,1,2-year yield up,Federal Funds Rate,"No forecast number to compare with. The market's own answer instead: the 2-year US government bond yield that day (FRED DGS2). Up = the Fed was tougher than expected = good for the dollar. Daily, measured AFTER the release."
+FOMC Statement,fed,FOMC decision,2,2y yield,1,2-year yield up,FOMC Statement|Fed Announcement,The same decision day: the same 2-year yield number.
+FOMC Economic Projections,fed,FOMC decision,3,2y yield,1,2-year yield up,FOMC Economic Projections,The same decision day: the same 2-year yield number.
+FOMC Press Conference,fed,FOMC decision,4,2y yield,1,2-year yield up,FOMC Press Conference,The same decision day: the same 2-year yield number.
+FOMC Minutes,fed,FOMC minutes,1,flagged,0,none,FOMC Meeting Minutes,No forecast number and no market series named for it. Flagged - not scored.
+Fed Beige Book,fed,Beige Book,1,flagged,0,none,Beige Book,A written report with no number. Flagged - not scored.
+Fed Chair Powell Speech,fed,Fed Chair,1,flagged,0,none,FOMC Member Powell Speaks,A speech: no number. Flagged - not scored.
+Fed Chair Powell Testimony,fed,Fed Chair,1,flagged,0,none,Fed Chairman Powell Testifies,Answers to Congress: no number. Flagged - not scored.
+Fed Chair Yellen Speech,fed,Fed Chair,1,flagged,0,none,Fed Chair Yellen Speaks,A speech: no number. Flagged - not scored.
+Fed Chair Yellen Testimony,fed,Fed Chair,1,flagged,0,none,Fed Chair Yellen Testifies,Answers to Congress: no number. Flagged - not scored.
+Fed Monetary Policy Report,fed,Fed report,1,flagged,0,none,Fed Monetary Policy Report,A written report with no number. Flagged - not scored.
+Jackson Hole Economic Symposium,fed,Jackson Hole,1,flagged,0,none,Jackson Hole Symposium,A meeting of central bankers (speeches): no number. Flagged - not scored.
+Fed CCAR Results,fed,Bank tests,1,flagged,0,none,Bank Stress Test Results,The Fed's test of the big banks: no number to compare. Flagged - not scored.
+Fed DFAST Results,fed,Bank tests,1,flagged,0,none,Bank Stress Test Results,The Fed's test of the big banks: no number to compare. Flagged - not scored.
+10-Year Note Auction,auction,Bond auction,1,flagged,0,none,10-y Bond Auction,The number is the yield the government's bonds sold at; there is no forecast to compare with. Flagged - not scored.
+10-Year TIPS Auction,auction,Bond auction,1,flagged,0,none,,A bond sale: no forecast. Flagged - not scored.
+2-Year Note Auction,auction,Bond auction,1,flagged,0,none,,A bond sale: no forecast. Flagged - not scored.
+20-Year Bond Auction,auction,Bond auction,1,flagged,0,none,,A bond sale: no forecast. Flagged - not scored.
+3-Year Note Auction,auction,Bond auction,1,flagged,0,none,,A bond sale: no forecast. Flagged - not scored.
+30-Year Bond Auction,auction,Bond auction,1,flagged,0,none,30-y Bond Auction,A bond sale: no forecast. Flagged - not scored.
+30-Year TIPS Auction,auction,Bond auction,1,flagged,0,none,,A bond sale: no forecast. Flagged - not scored.
+5-Year Note Auction,auction,Bond auction,1,flagged,0,none,,A bond sale: no forecast. Flagged - not scored.
+5-Year TIPS Auction,auction,Bond auction,1,flagged,0,none,,A bond sale: no forecast. Flagged - not scored.
+7-Year Note Auction,auction,Bond auction,1,flagged,0,none,,A bond sale: no forecast. Flagged - not scored.
+EIA Crude Oil Stocks Change,energy,Oil stocks,1,flagged,0,none,Crude Oil Inventories,An oil number: no agreed direction for the dollar. Flagged - not scored.
+EIA Cushing Crude Oil Stocks Change,energy,Oil stocks,2,flagged,0,none,,An oil number: no agreed direction for the dollar. Flagged - not scored.
+Baker Hughes US Oil Rig Count,energy,Rig count,1,flagged,0,none,,A count of oil wells being drilled: no forecast. Flagged - not scored.
+Baker Hughes US Total Rig Count,energy,Rig count,2,flagged,0,none,,A count of oil and gas wells being drilled: no forecast. Flagged - not scored.
+EIA Short-Term Energy Outlook,energy,Energy outlook,1,flagged,0,none,,A written outlook with no number. Flagged - not scored.
+WASDE Report,energy,Farm report,1,flagged,0,none,,A farm-crops report with no number here. Flagged - not scored.
+CFTC Crude Oil Non-Commercial Net Positions,positions,CFTC positions,1,flagged,0,none,,What big speculators hold - not a US-economy number and nobody forecasts it. Flagged - not scored.
+CFTC Gold Non-Commercial Net Positions,positions,CFTC positions,2,flagged,0,none,,What big speculators hold in gold - not a US-economy number and nobody forecasts it. Flagged - not scored.
+CFTC Nasdaq 100 Non-Commercial Net Positions,positions,CFTC positions,3,flagged,0,none,,What big speculators hold - not a US-economy number. Flagged - not scored.
+CFTC S&P 500 Non-Commercial Net Positions,positions,CFTC positions,4,flagged,0,none,,What big speculators hold - not a US-economy number. Flagged - not scored.
+FOMC Member Barkin Speech,fed_speaker,Fed speaker,1,flagged,0,none,FOMC Member Barkin Speaks,A speech: no number. Flagged - not scored.
+FOMC Member Bostic Speech,fed_speaker,Fed speaker,1,flagged,0,none,FOMC Member Bostic Speaks,A speech: no number. Flagged - not scored.
+FOMC Member Bullard Speech,fed_speaker,Fed speaker,1,flagged,0,none,FOMC Member Bullard Speaks,A speech: no number. Flagged - not scored.
+FOMC Member Collins Speech,fed_speaker,Fed speaker,1,flagged,0,none,FOMC Member Collins Speaks,A speech: no number. Flagged - not scored.
+FOMC Member Daly Speech,fed_speaker,Fed speaker,1,flagged,0,none,FOMC Member Daly Speaks,A speech: no number. Flagged - not scored.
+FOMC Member Evans Speech,fed_speaker,Fed speaker,1,flagged,0,none,FOMC Member Evans Speaks,A speech: no number. Flagged - not scored.
+FOMC Member George Speech,fed_speaker,Fed speaker,1,flagged,0,none,FOMC Member George Speaks,A speech: no number. Flagged - not scored.
+FOMC Member Harker Speech,fed_speaker,Fed speaker,1,flagged,0,none,FOMC Member Harker Speaks,A speech: no number. Flagged - not scored.
+FOMC Member Kaplan Speech,fed_speaker,Fed speaker,1,flagged,0,none,FOMC Member Kaplan Speaks,A speech: no number. Flagged - not scored.
+FOMC Member Kashkari Speech,fed_speaker,Fed speaker,1,flagged,0,none,FOMC Member Kashkari Speaks,A speech: no number. Flagged - not scored.
+FOMC Member Mester Speech,fed_speaker,Fed speaker,1,flagged,0,none,FOMC Member Mester Speaks,A speech: no number. Flagged - not scored.
+FOMC Member Rosengren Speech,fed_speaker,Fed speaker,1,flagged,0,none,FOMC Member Rosengren Speaks,A speech: no number. Flagged - not scored.
+FOMC Member Williams Speech,fed_speaker,Fed speaker,1,flagged,0,none,FOMC Member Williams Speaks,A speech: no number. Flagged - not scored.
+Fed Governor Bowman Speech,fed_speaker,Fed speaker,1,flagged,0,none,FOMC Member Bowman Speaks,A speech: no number. Flagged - not scored.
+Fed Governor Brainard Speech,fed_speaker,Fed speaker,1,flagged,0,none,FOMC Member Brainard Speaks,A speech: no number. Flagged - not scored.
+Fed Governor Cook Speech,fed_speaker,Fed speaker,1,flagged,0,none,FOMC Member Cook Speaks,A speech: no number. Flagged - not scored.
+Fed Governor Jefferson Speech,fed_speaker,Fed speaker,1,flagged,0,none,FOMC Member Jefferson Speaks,A speech: no number. Flagged - not scored.
+Fed Governor Powell Speech,fed_speaker,Fed speaker,1,flagged,0,none,FOMC Member Powell Speaks,A speech: no number. Flagged - not scored.
+Fed Governor Quarles Speech,fed_speaker,Fed speaker,1,flagged,0,none,FOMC Member Quarles Speaks,A speech: no number. Flagged - not scored.
+Fed Governor Tarullo Speech,fed_speaker,Fed speaker,1,flagged,0,none,FOMC Member Tarullo Speaks,A speech: no number. Flagged - not scored.
+Fed Governor Waller Speech,fed_speaker,Fed speaker,1,flagged,0,none,FOMC Member Waller Speaks,A speech: no number. Flagged - not scored.
+Fed Vice Chair Brainard Speech,fed_speaker,Fed speaker,1,flagged,0,none,FOMC Member Brainard Speaks,A speech: no number. Flagged - not scored.
+Fed Vice Chair for Supervision Barr Speech,fed_speaker,Fed speaker,1,flagged,0,none,FOMC Member Barr Speaks,A speech: no number. Flagged - not scored.
+Fed Vice Chairman Clarida Speech,fed_speaker,Fed speaker,1,flagged,0,none,FOMC Member Clarida Speaks,A speech: no number. Flagged - not scored.
+Fed Vice Chairman Fischer Speech,fed_speaker,Fed speaker,1,flagged,0,none,FOMC Member Fischer Speaks,A speech: no number. Flagged - not scored.
+Treasury Secretary Mnuchin Speech,other,Speech,1,flagged,0,none,Treasury Sec Mnuchin Speaks,A speech: no number. Flagged - not scored.
+U.S. President State of the Union Address,other,Speech,1,flagged,0,none,,A speech: no number. Flagged - not scored.

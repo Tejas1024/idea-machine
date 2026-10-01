@@ -1,0 +1,24 @@
+# keys and logins: never committed (.env.example lists them)
+.env
+*.env
+
+# the price data and everything the machine writes (not in this copy - PRIVATE-PARTS.md)
+/data/*
+!/data/usd_inr.csv
+!/data/swap.csv
+!/data/news/
+/data/news/*
+!/data/news/signs.csv
+!/data/news/dgs2.csv
+/old/
+/strategy/
+/demo-output/
+
+# Python and test caches
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.hypothesis/
+mlruns/
+*.tmp

@@ -1,0 +1,51 @@
+{
+  "about": "A MADE-UP idea for `python -m machine.demo`. The words are invented (not the trader's). talker_answer is written by hand in the exact shape the talker's ONE Claude tool call returns (machine/talker/translate.py: fill_idea_form), so the demo runs with no key and no call; code checks it exactly as it checks a real answer. stand_in_answers stands in for the trader's reply to the question (in the real machine he answers on Telegram, after seeing pictures).",
+  "words": "sell when the high is taken, then the break soon after and the first gap, sell at the gap",
+  "stand_in_answers": {"U1": "A"},
+  "talker_answer": {
+    "voice_typing": [],
+    "terms": [
+      {"term": "liquidity taken / sweep", "answered_by": "strategy.md §2 line 15"},
+      {"term": "first gap", "answered_by": null}
+    ],
+    "kind": "idea",
+    "title": "sell after a high is taken, the break and the first gap",
+    "timeframe": "5m",
+    "directions": ["sell"],
+    "steps": [
+      {"id": "sweep", "what": "a session high is taken (a wick is enough)", "block": "sweep", "tf": "5m",
+       "max_wait": "first step", "params": [{"name": "kinds", "value_json": "[\"session\"]"}],
+       "sources": ["strategy.md §2 line 15", "strategy.md section 1", "LEARNED #1"]},
+      {"id": "brk", "what": "break of structure down, soon after", "block": "break_of_structure", "tf": "5m",
+       "max_wait": 30, "params": [{"name": "after", "value_json": "\"sweep\""}],
+       "sources": ["strategy.md section 2"]},
+      {"id": "gap", "what": "the first gap of the breaking move", "block": "gap_of_the_move", "tf": "5m",
+       "max_wait": 6, "params": [], "sources": ["strategy.md section 3", "LEARNED #2"]}
+    ],
+    "entry": {"how": "limit", "at": "gap.near", "max_wait": "no limit", "sources": ["strategy.md section 3"]},
+    "exit": {"kind": "stop", "at": "brk.extreme", "beyond_usd": 0.0, "management": [],
+             "sources": ["strategy.md section 4"]},
+    "targets": [{"kind": "next_liquidity", "ratio": null, "at": null, "kinds": null, "pick": "nearest",
+                 "sources": ["strategy.md section 4", "LEARNED #3"]}],
+    "do_not_enter": [],
+    "filters": [],
+    "settings": [],
+    "unclear": [
+      {"id": "U1", "kind": "ask", "term": "the high", "part": "which high counts", "words": "the high",
+       "readings": [
+         {"id": "A", "means": "the high of any session (Asia, London or New York)", "changes": []},
+         {"id": "B", "means": "only the London session's high",
+          "changes": [{"path": "steps.sweep.params.which_session", "value_json": "[\"London\"]"}]}
+       ]},
+      {"id": "U2", "kind": "version", "term": "soon", "part": "how soon the break must come", "words": "soon after",
+       "readings": [
+         {"id": "A", "means": "the break within 30 five-minute bars (2.5 hours)", "changes": []},
+         {"id": "B", "means": "the break within 12 five-minute bars (1 hour)",
+          "changes": [{"path": "steps.brk.max_wait_bars", "value_json": "12"}]}
+       ]}
+    ],
+    "missing": [],
+    "already_seen": [],
+    "notes": null
+  }
+}

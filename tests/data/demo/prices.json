@@ -1,0 +1,8 @@
+{
+  "about": "The recipe of the demo's made-up prices (machine/agent/noise.py walk_m1): one 1-minute bar every weekday minute 2016-2023, each minute's move drawn at random (0.019% - about $0.25 at $1,300), so no minute says anything about the next one. About 3 million bars, made in about a second from this recipe instead of a 100 MB file. There is NO edge to find: the honest answer for any idea on these prices is 'chance'.",
+  "seed": 7,
+  "start": "2016-01-04",
+  "end": "2023-12-29 23:59",
+  "price": 1075.0,
+  "step": 0.00019
+}

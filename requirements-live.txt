@@ -1,0 +1,3 @@
+# Windows + MT5 only (🪟): the news calendar export (L12), the live feed (L17a), real orders later.
+# Install on Windows: python -m pip install -r requirements.txt -r requirements-live.txt
+MetaTrader5==5.0.6090; sys_platform == "win32"

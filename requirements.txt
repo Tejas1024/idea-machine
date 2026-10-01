@@ -1,0 +1,30 @@
+# Pinned from Tejas's PC (pip freeze, 28 Sep 2026, Python 3.13.2). Install: python -m pip install -r requirements.txt
+# Windows + MT5 extras: requirements-live.txt. How to set up a new PC: docs/SETUP.md.
+
+# what machine/ imports
+numpy==2.5.2
+pandas==3.0.5
+python-dotenv==1.2.3
+# ... from L1 on (installed now so every PC matches)
+pyarrow==25.0.1
+duckdb==1.5.5
+pydantic==2.13.5
+# the time-zone rules machine/data/clock.py uses (Windows has none built in; pandas needs it too)
+tzdata==2026.3
+# the talker (L8): one Claude tool call per idea (machine/talker/llm.py). Key: ANTHROPIC_API_KEY in .env
+anthropic==1.8.0
+# the pictures (L4): machine/charts draws with matplotlib and writes real JPEGs with Pillow (#106)
+matplotlib==3.11.1
+pillow==12.3.0
+# the learner's model (L13.2): LightGBM - its own TreeSHAP gives the SHAP values (no shap package needed)
+lightgbm==4.7.0
+scipy==1.18.0
+narwhals==2.24.0
+# the research tools (L14.1): machine/mcp serves them over MCP with the official Python SDK (installed 1 Oct 2026 on
+# Tejas's PC: it only added packages, none changed)
+mcp==2.2.0
+mcp-types==2.2.0
+
+# the tests
+pytest==9.1.1
+hypothesis==6.168.2

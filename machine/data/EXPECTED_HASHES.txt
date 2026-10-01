@@ -1,0 +1,13 @@
+# The price data every PC must have (L1, made on Tejas's PC, 28 Sep 2026). In git; data/DATA_HASHES.txt is the
+# local copy that python -m machine.data.convert writes. tests/test_data.py fails if the two differ.
+# raw: SHA-256 of the raw CSV.  clean: CONTENT hash of the rows (machine/data/hashes.py).  sealed: SHA-256 of the
+# 2024+ raw lines, copied unread. Check a copied CSV by hand on Windows:  certutil -hashfile <file> SHA256
+raw     old/build/data/mt5_xauusd_m1.csv  sha256=80a00fc46016bdc75e08ab346c96c07847283f86ee82219e381aed37caa5aba5  bytes=218333518
+clean   data/gold_m1.parquet  content=416d03aad1ebb8e8b99acf68b8dd51cf9a258026ba39e29d73ec302378e58a02  rows=2806489  clock=server  from=old/build/data/mt5_xauusd_m1.csv
+sealed  data/sealed/gold_m1_2024plus.csv  sha256=80533ccae62c5ff1be1a4017f648d6df49f9e68f9f7b4b7c22743202955016f8  rows=921136  from=old/build/data/mt5_xauusd_m1.csv
+raw     old/build/data/mt5_xauusd_m5.csv  sha256=ecfd48ba8f1ba92bbbb95c1ceb22173f68d1cebf3483fca2cb7155f94251d3e2  bytes=44207607
+clean   data/gold_m5_mt5.parquet  content=1532152e6c56a4f4ad1fa4383133e17ed50652cc9f5b1fffd8ea9d99940776a1  rows=561728  clock=server  from=old/build/data/mt5_xauusd_m5.csv
+sealed  data/sealed/gold_m5_mt5_2024plus.csv  sha256=6c50ab7d5f9adb2b9fe1e1eaf960fc2a4e77504213c119ad58176f13736ab56d  rows=184433  from=old/build/data/mt5_xauusd_m5.csv
+raw     old/build/data/gold_5m_dukascopy.csv  sha256=34e42d7ca7f91a82722fa1d7b6203f5d12f4af56fbf36053ea49e6a8a99ba3a2  bytes=38308822
+clean   data/gold_m5_dukascopy.parquet  content=19b56cff6a5c0725669a57f1006e14769f6891fcbc7230eb5cd722facf10d422  rows=354475  clock=utc  from=old/build/data/gold_5m_dukascopy.csv
+sealed  data/sealed/gold_m5_dukascopy_2024plus.csv  sha256=b03e6c59a8fc96d537fafef865c82718f0b98b0e236377c9c94e05b3f9be5429  rows=186051  from=old/build/data/gold_5m_dukascopy.csv

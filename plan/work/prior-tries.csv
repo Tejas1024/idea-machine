@@ -1,0 +1,79 @@
+idea_key,blocks,timeframe,entry,tries,years,source
+early_sweep_direction,liquidity_sweep+break_of_structure+fvg,5m,gap:far,28,2016-2026,old/guide-ml/BUILD-PLAN.md §0 #1; old/build/diagnose_direction.py
+early_sweep_126_combos,liquidity_sweep+break_of_structure+fvg+mgmt:mode,5m,gap:far,126,2016-2026,old/guide-ml/BUILD-PLAN.md §0 #1; old/build/sweep_indicator.py
+early_hedge_hold_audit,liquidity_sweep+break_of_structure+fvg+mgmt:hedge,5m,gap:far,1,2016-2026,old/guide-ml/BUILD-PLAN.md §0 #2; old/build/audit_engine.py
+early_four_modes,liquidity_sweep+break_of_structure+fvg+mgmt:mode,5m,gap:far,4,2016-2026,old/guide-ml/BUILD-PLAN.md §0 #3; old/build/engine_v2.py
+type1_race_leaky,liquidity_sweep+break_of_structure+fvg,5m,gap:far,61,2016-2026,strategy-understanding §22
+type1_race_causal,liquidity_sweep+break_of_structure+fvg,5m,gap:far,61,2016-2026,strategy-understanding §27; old/CLAUDE-old-phase.md hard-won facts
+type1_ten_sentences,liquidity_sweep+break_of_structure+fvg,5m,gap:far,13,2016-2026,strategy-understanding §31
+type1_strict_subsets,liquidity_sweep+break_of_structure+fvg,5m,gap:far,5,2016-2026,strategy-understanding §32
+type1_wait_rules,liquidity_sweep+break_of_structure+fvg+line_in_path,5m,gap:far,6,2016-2026,strategy-understanding §17a §17b
+hedge_vs_stop,liquidity_sweep+break_of_structure+fvg+mgmt:hedge_vs_stop,5m,gap:far,9,2016-2026,strategy-understanding §17 §28
+mgmt_families_train_test,liquidity_sweep+break_of_structure+fvg+mgmt:families,5m,gap:far,30,2016-2026,strategy-understanding §22
+grid_escape,liquidity_sweep+break_of_structure+fvg+mgmt:grid_escape,5m,gap:far,7,2016-2026,strategy-understanding §24 §28 §36h
+ea_ladder_hedge,mgmt:ea_ladder,5m,random,26,2016-2026,strategy-understanding §34
+band_pass_through_filter,liquidity_sweep+break_of_structure+fvg+adr,5m,gap:far,1,2016-2026,strategy-understanding §33g
+buy_and_hold,buy_and_hold,1d,market:open,1,2016-2026,strategy-understanding §23 §30 §66ax
+donchian_trend,donchian+atr,1h,stop:breakout,53,2016-2026,old/guide-ml/BUILD-PLAN.md §0 #7; strategy-understanding §23 §66ao; review 19 Sep (memory file)
+constant_risk_sizing,donchian+atr+mgmt:sizing,1h,stop:breakout,2,2016-2026,old/guide-ml/ML-FIXED-2026-08-29.md §3; old/guide-ml/BUILD-PLAN.md §0 #8
+ml_direction_six,ml_model,1h|1d,none,14,2015-2026,old/guide-ml/ML-FIXED-2026-08-29.md §1; old/guide-ml/BUILD-PLAN.md §0 #4
+ml_gate_trend_ea,donchian+atr+ml_model,1h,stop:breakout,1,2018-2026,old/guide-ml/ML-FIXED-2026-08-29.md §1; old/guide-ml/BUILD-PLAN.md §0 #5
+ml_volatility_stop,donchian+atr+ml_model,1h,stop:breakout,2,2015-2026,old/guide-ml/ML-FIXED-2026-08-29.md §2; old/guide-ml/BUILD-PLAN.md §0 #6
+account_doubles_7_8_days,capital_plan,none,none,1,2016-2026,old/guide-ml/BUILD-PLAN.md §0 Also settled; old/CLAUDE-old-phase.md hard-won facts; strategy-understanding §66bu
+type1_grab_gap,liquidity_sweep+break_of_structure+fvg,5m,gap:near,29,2016-2023,strategy-understanding §36h §38 §40d §41e §45g §46b §51b §53c §54a §55b §56c §62b §64g §64i-§64o §66s §66ah §66aq §66as-§66ax §66bl §66bu
+gap_15m,liquidity_sweep+break_of_structure+fvg,15m,gap:near,16,2016-2023,strategy-understanding §40d §41e §45g §51b §54a §55b §56c §66s §66ah §66aq §66as-§66ax §66bb
+gap_1h,liquidity_sweep+break_of_structure+fvg,1h,gap:near,16,2016-2023,strategy-understanding §40d §41e §45g §51b §54a §55b §56c §66s §66ah §66aq §66as-§66ax; review 19 Sep (memory file)
+type2_trendline_touch,trendlines,5m,line:touch,17,2016-2023,strategy-understanding §40d §41e §45g §46b §51b §54a §55b §56c §66s §66ah §66aq §66as-§66ax §66bb
+type2_touch_rules,trendlines,5m,line:touch,8,2016-2023,strategy-understanding §66ba §66bb
+type3_zone_breakout,strong_zones+zone_break,5m,zone:break,16,2016-2023,strategy-understanding §40d §41e §45g §51b §54a §55b §56c §66s §66ah §66aq §66as-§66ax §66bn
+p1_triangle_false_break,triangles+false_breakout,5m,pattern:false_break,33,2016-2023,strategy-understanding §40d §41e §45g §51b §54a §56c §66s §66t §66ah §66aj §66aq §66as-§66ax §66bg
+zone_entry_84,strong_zones+zone_entry+obvious_liquidity,5m,zone:edge,17,2016-2023,strategy-understanding §66x §66y §66ab §66ao §66ap §66aq §66as-§66ax §66bb
+zone_break_retest_97,strong_zones+zone_break,5m,zone:retest,30,2016-2023,strategy-understanding §66z §66ab §66ac §66ad §66af §66ag §66aq §66as-§66ax
+second_gap,liquidity_sweep+break_of_structure+fvg,5m,gap:second,9,2016-2023,strategy-understanding §50c §66bi §66bj §66bl
+p2_false_liquidity,liquidity_sweep+false_breakout+fvg,5m,gap:near,6,2016-2023,strategy-understanding §66bi
+wedge,wedges,5m,pattern:wedge,2,2016-2023,strategy-understanding §66bi
+hammer_grab,liquidity_sweep+hammer+fvg,5m|15m|1h,gap:near,10,2016-2023,strategy-understanding §66bb
+fib_0618,swings+break_of_structure+fib_levels,15m|1h|4h|1d,fib:limit,48,2016-2023,strategy-understanding §66bz; old/build/fib_135.py
+type1_all_three_tf,liquidity_sweep+break_of_structure+fvg+htf_bias,5m,gap:any,2,2016-2023,strategy-understanding §54d §66bi
+type1_already_took_target,liquidity_sweep+break_of_structure+fvg,5m,gap:far,3,2016-2023,strategy-understanding §59 §64l §64o
+type1_5m_swing_liquidity,liquidity_sweep+break_of_structure+fvg+swing_roles,5m,gap:far,2,2016-2023,strategy-understanding §64n §64o
+bt8_1h_swing_entry,liquidity_sweep+break_of_structure+fvg+swing_roles,5m,gap:near,2,2016-2023,strategy-understanding §66v
+bt7_unfilled_gap,liquidity_sweep+break_of_structure+fvg+obvious_liquidity,5m|15m|1h,gap:near,24,2016-2023,strategy-understanding §66ah
+min_gap_size,liquidity_sweep+break_of_structure+fvg,5m,gap:near,5,2016-2023,strategy-understanding §66bd
+liquidity_once_recent_first,liquidity_sweep+break_of_structure+fvg+recent_first,5m,gap:near,7,2016-2023,strategy-understanding §66bt §66bu
+bias_methods_12,htf_bias,1h|1d|1w,none,24,2016-2023,strategy-understanding §66ax §66ay
+his_daily_bias_readings,htf_bias,1d,none,15,2016-2023,strategy-understanding §65j-§65m
+flat_bias_fallback,htf_bias,1d,none,11,2016-2023,strategy-understanding §66bq
+news_trap,news_event+sessions,1h,market:break,2,2018-2023,strategy-understanding §48f; plan/work/news.md
+ml_over_his_setups,liquidity_sweep+break_of_structure+fvg+ml_model,5m,gap:near,2,2016-2023,strategy-understanding §66am
+combo_750,his_entries+mgmt:combo,5m|15m|1h,any,750,2016-2023,strategy-understanding §66ao; old/build/combo_lab.py
+phase1_manager,liquidity_sweep+break_of_structure+fvg+mgmt:grid_escape+mgmt:decide_at_entry,5m,gap:far,8,2016-2023,strategy-understanding §36h §36i
+timeout_vs_moving_target,liquidity_sweep+break_of_structure+fvg+mgmt:timeout,5m,gap:far,3,2016-2023,strategy-understanding §38
+exit_new_entry_at_booking,his_entries+mgmt:new_entry_exit,5m|15m|1h,any,2,2016-2023,strategy-understanding §41
+halfway_rule,liquidity_sweep+break_of_structure+fvg+halfway_reversal,5m,gap:any,15,2016-2023,strategy-understanding §40e §41e §57b §66w
+floor_ceiling,his_entries+mgmt:floor,5m|15m|1h,any,8,2016-2023,strategy-understanding §44c §45b §45g §46b §64g §64h
+trailing_target,liquidity_sweep+break_of_structure+fvg+trend_extension,5m,gap:any,7,2016-2023,strategy-understanding §44c §57b §66w
+paired_exits_ea,liquidity_sweep+break_of_structure+fvg+mgmt:paired_exit,5m,gap:far,2,2016-2023,strategy-understanding §44c §57b; review 19 Sep (memory file)
+zone_hedge_aim_small,liquidity_sweep+break_of_structure+fvg+strong_zones+mgmt:zone_hedge,5m,gap:far,10,2016-2023,strategy-understanding §47d §48e
+double_profit,liquidity_sweep+break_of_structure+fvg+strong_zones+double_profit,5m,gap:far,8,2016-2023,strategy-understanding §48a §48b §48e
+opposite_reversal_exit,liquidity_sweep+break_of_structure+fvg+mgmt:opposite_exit,5m,gap:far,3,2016-2023,strategy-understanding §49b
+far_targets,liquidity_sweep+break_of_structure+fvg+mgmt:far_target,5m,gap:far,8,2016-2023,strategy-understanding §49c
+hedge_close_rules,liquidity_sweep+break_of_structure+fvg+mgmt:hedge_close,5m,gap:far,8,2016-2023,strategy-understanding §61b §62b §64g §64i
+new_setup_resolves_hedge,liquidity_sweep+break_of_structure+fvg+mgmt:hedge_close,5m,gap:far,9,2016-2023,strategy-understanding §64j §64k
+fixed_hedge_always,his_entries+mgmt:fixed_hedge,5m|15m|1h,any,2,2016-2023,strategy-understanding §66ap
+profit_leg_only,his_entries+mgmt:profit_leg_only,5m|15m|1h,any,2,2016-2023,strategy-understanding §66aq
+whole_trade_green,his_entries+mgmt:whole_trade_green,5m|15m|1h,any,3,2016-2023,strategy-understanding §66ar §66aw
+room_vs_hedge,his_entries+mgmt:room,5m|15m|1h,any,10,2016-2023,strategy-understanding §66ar §66au §66av §66bg
+no_close_zone,his_entries+mgmt:no_close_zone,5m|15m|1h,any,14,2016-2023,strategy-understanding §66as §66at §66av §66bg; review 19 Sep (memory file)
+leftover_leg_target,liquidity_sweep+break_of_structure+fvg+mgmt:leftover_target,5m,gap:near,11,2016-2023,strategy-understanding §66av §66aw §66bj §66bl
+close_losing_leg,liquidity_sweep+break_of_structure+fvg+mgmt:close_losing_leg,5m,gap:near,8,2016-2023,strategy-understanding §66av §66bb §66bx §66by
+any_leg_may_close,liquidity_sweep+break_of_structure+fvg+mgmt:any_leg_close,5m,gap:near,1,2016-2023,strategy-understanding §66bx
+trend_escape,liquidity_sweep+break_of_structure+fvg+mgmt:trend_escape,5m,gap:near,2,2016-2023,strategy-understanding §66bx; review 19 Sep (memory file)
+zone_exit_reenter_bt2,his_entries+strong_zones+mgmt:zone_exit,5m|15m|1h,any,15,2016-2023,strategy-understanding §66ai §66av
+news_close,his_entries+news_event+mgmt:news_close,5m|15m|1h,any,2,2016-2023,strategy-understanding §66au
+trailing_cover,trendlines+mgmt:trailing_cover,5m,line:touch,2,2016-2023,strategy-understanding §66bi
+concurrency,his_entries+mgmt:concurrency,5m|15m|1h,any,10,2016-2023,strategy-understanding §66bc §66bp; review 19 Sep (memory file)
+entry_timing_wait_vs_at_once,his_entries+mgmt:entry_timing,5m|15m|1h,any,23,2016-2023,strategy-understanding §66bc §66bg
+capital_adr_sizing,his_entries+adr+mgmt:sizing,5m|15m|1h,any,10,2016-2023,strategy-understanding §66ay §66az §66bq
+exits_from_all_entries,his_entries+mgmt:exit_set,5m|15m|1h,any,4,2016-2023,strategy-understanding §66ax
+review_plain_stop,liquidity_sweep+break_of_structure+fvg+mgmt:stop,5m|1h,gap:near,7,2016-2023,review 19 Sep (memory file)
