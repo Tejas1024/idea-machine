@@ -2,6 +2,7 @@
 
 - check_dates       the sealed years (2024, 2025, 2026) are never touched for testing (LEARNED #96, #104); opened only
                     for the three uses Tejas said yes to in T14 (SEALED_USES).
+- live_trial        T14 use 1 inside a live alert (L17a): while it is open, his blocks may read live bars.
 - assert_no_future  the "cut off the future" test: a value may use only what was known at its own time (R4).
 - assert_no_future_events  the same for event tables (a row per swing, gap, break ...): a row known at t may use
                     only the bars that had closed by t (L6.1).
@@ -12,7 +13,9 @@ from __future__ import annotations
 import datetime as dt
 import json
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +58,26 @@ SEALED_USES = {
                   "that day in plan/work/final-exam-yes.md (T14 question 3)",
 }
 _USE_LINE = re.compile(r"^\s*use:\s*([a-z-]+)\s*=\s*(yes|no)\s*$", re.IGNORECASE | re.MULTILINE)
+_LIVE_TRIAL: ContextVar[str | None] = ContextVar("guards_live_trial", default=None)
+
+
+@contextmanager
+def live_trial(who: str, why: str) -> Iterator[None]:
+    """T14 use 1 INSIDE a live alert (L17a): while this is open, check_dates lets 2024+ times pass without unlock, so his
+    own blocks (each checks its bars) can draw his bias and levels on live bars for an alert. It opens only while
+    plan/work/T14-decisions.md says "use: live-trial = yes"; the live code logs the reading once a week
+    (machine/live/opened.py). Only machine/live opens it (tests/test_live.py checks) - never for testing, tuning or
+    choosing (T14). Per thread / task (a ContextVar): nothing else running at the same time is opened."""
+    if not str(who or "").strip() or not str(why or "").strip():
+        raise SealedYearsError("live_trial needs who and why.")
+    if allowed_uses().get("live-trial") is not True:
+        raise SealedYearsError(f"{_show(config.T14_DECISIONS)} has no line \"use: live-trial = yes\": the live alerts may "
+                               f"not read 2024+ bars. {SEALED_WORDS}.")
+    token = _LIVE_TRIAL.set(f"{who}: {why}")
+    try:
+        yield
+    finally:
+        _LIVE_TRIAL.reset(token)
 
 
 def check_dates(obj: Any, unlock: bool = False, who: str | None = None, why: str | None = None,
@@ -74,6 +97,8 @@ def check_dates(obj: Any, unlock: bool = False, who: str | None = None, why: str
     latest = _latest(obj)
     if latest is None or latest < pd.Timestamp(config.SEALED_FROM):
         return obj
+    if not unlock and _LIVE_TRIAL.get() is not None:
+        return obj                                           # inside a live alert (live_trial, T14 use 1)
     if not unlock:
         raise SealedYearsError(
             f"This touches {latest}; the sealed years start {config.SEALED_FROM}. {SEALED_WORDS}. "

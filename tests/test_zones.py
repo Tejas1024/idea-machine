@@ -17,7 +17,7 @@ from machine.blocks import liquidity as LQ
 from machine.blocks import zones as Z
 from machine.ideas import compile as C
 from machine.ideas.form import Idea
-from tests.block_fakes import START, bars_from, candles, random_bars
+from tests.block_fakes import START, bars_from, candles, fake_market, random_bars
 from tests.chart_fakes import to_1h
 from tests.test_ideas import fake_m1, type1
 
@@ -359,7 +359,7 @@ def m1():
 
 @pytest.fixture(scope="module")
 def market(m1):
-    return C.Market.from_m1(m1)
+    return fake_market(m1)
 
 
 def test_the_zone_steps_and_the_zone_target_are_built(market):
@@ -398,7 +398,7 @@ def test_compiled_zone_signals_do_not_peek(m1):
     ideas = [Idea.load(d) for d in (ZE, ZB, GZ)]
 
     def signals_of(bars):
-        mk = C.Market.from_m1(bars)
+        mk = fake_market(bars)
         rows = [{"form": i.id, **s.model_dump(include={"known_at", "direction", "entry_price", "stop", "targets"})}
                 for i in ideas for s in C.compile_idea(i, mk).signals]
         return pd.DataFrame(rows, columns=["form", "known_at", "direction", "entry_price", "stop", "targets"])

@@ -11,10 +11,9 @@ import pytest
 
 from machine import config, guards, settings
 from machine.data import clock
-from machine.ideas.compile import Market
 from machine.news import reaction
 from machine.news.reaction import MIN, Measurer
-from tests.block_fakes import random_bars
+from tests.block_fakes import fake_market, random_bars
 
 DAY = "2019-03-05"                       # a Tuesday in winter: server = UTC + 2, New York = UTC - 5
 T0 = pd.Timestamp(f"{DAY} 15:30")        # 08:30 New York
@@ -191,7 +190,7 @@ def test_comparison_moments_are_quiet_weekdays_at_the_same_clock():
 
 def _context(times: pd.DatetimeIndex, busy: np.ndarray):
     def fn(m1: pd.DataFrame) -> pd.DataFrame:
-        market = Market.from_m1(m1)
+        market = fake_market(m1)
         t = times[times <= m1.index[-1]]
         return Measurer(m1, market, busy).measure(t, context_only=True).drop(columns=["session", "up_level_kind",
                                                                                      "dn_level_kind"])
@@ -201,7 +200,7 @@ def _context(times: pd.DatetimeIndex, busy: np.ndarray):
 def _kinds(times: pd.DatetimeIndex, busy: np.ndarray):
     def fn(m1: pd.DataFrame) -> pd.DataFrame:
         t = times[times <= m1.index[-1]]
-        out = Measurer(m1, Market.from_m1(m1), busy).measure(t, context_only=True)
+        out = Measurer(m1, fake_market(m1), busy).measure(t, context_only=True)
         return out[["session", "up_level_kind", "dn_level_kind"]].fillna("none")
     return fn
 
@@ -209,7 +208,7 @@ def _kinds(times: pd.DatetimeIndex, busy: np.ndarray):
 @pytest.fixture(scope="module")
 def walk():
     m1 = random_bars(n=26 * 1440, seed=7, tf_minutes=1)       # 26 days of 1-minute bars, a random walk
-    m1 = m1.drop(columns=["utc"]).assign(vol=1, spread=20)    # Market.from_m1 builds the other charts from these
+    m1 = m1.drop(columns=["utc"]).assign(vol=1, spread=20)    # fake_market builds the other charts from these
     times = pd.date_range("2019-01-21 15:30", "2019-02-01 15:30", freq="1D").append(
         pd.date_range("2019-01-22 17:00", "2019-01-31 17:00", freq="3D"))
     busy = pd.DatetimeIndex(["2019-01-15 15:30", "2019-01-16 17:00"]).as_unit("ns").asi8
@@ -221,7 +220,7 @@ def test_the_situation_before_passes_the_cut_off_the_future_test(walk):
     cuts = [int(m1.index.get_loc(t)) for t in (times[3], times[8])] + [int(m1.index.get_loc(times[11])) + 7]
     guards.assert_no_future(_context(times, busy), m1, cuts)
     guards.assert_no_future(_kinds(times, busy), m1, cuts)
-    full = Measurer(m1, Market.from_m1(m1), busy).measure(times, context_only=True)
+    full = Measurer(m1, fake_market(m1), busy).measure(times, context_only=True)
     assert full["adr"].notna().all() and full["normal_5m"].notna().any() and full["bias_d"].notna().all()
     assert (full["up_level_dist"].dropna() > 0).all() and (full["dn_level_dist"].dropna() > 0).all()
     assert full["up_level_dist"].notna().sum() >= 5          # the walk has levels above it most days
@@ -243,7 +242,7 @@ def test_his_levels_at_the_release_are_the_ones_not_taken_before_it(walk):
     """The nearest level each side = the nearest among the levels known before the release candle opened and not
     taken before it (checked against a plain search of the lifetimes table)."""
     m1, times, busy = walk
-    market = Market.from_m1(m1)
+    market = fake_market(m1)
     meas = Measurer(m1, market, busy)
     out = meas.measure(times, context_only=True)
     life = market.liquidity(settings.fingerprint()).life
@@ -262,7 +261,7 @@ def test_his_levels_at_the_release_are_the_ones_not_taken_before_it(walk):
 def test_the_first_of_his_levels_taken(walk):
     """lv_side / lv_min are read off the 1-minute bars after the release, from the two nearest levels."""
     m1, times, busy = walk
-    meas = Measurer(m1, Market.from_m1(m1), busy)
+    meas = Measurer(m1, fake_market(m1), busy)
     out = meas.measure(times)
     assert out["has_bars"].all()
     for t, r in out.iterrows():

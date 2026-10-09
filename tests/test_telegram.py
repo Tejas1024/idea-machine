@@ -284,6 +284,7 @@ def test_status_says_what_waits(bot, tg, where):
     reply = tg.replies_to(u)[0]
     assert reply.startswith("STATUS") and "PAUSED" in reply and "Waiting to be sent: 1." in reply
     assert "waiting for a number: 1." in reply
+    assert "Live news alerts (L17a): no pass yet." in reply  # the live alerts' own lines (machine/live)
     assert len(_inbox(where)) == 1                           # the command itself is not a lesson
 
 

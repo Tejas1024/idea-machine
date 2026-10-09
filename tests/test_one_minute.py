@@ -13,7 +13,7 @@ from machine.blocks import one_minute as OM
 from machine.blocks import trendlines as TL
 from machine.ideas import compile as C
 from machine.ideas.form import Idea
-from tests.block_fakes import START, bars_from
+from tests.block_fakes import START, bars_from, fake_market
 from tests.test_ideas import fake_m1, type1
 
 M1 = pd.Timedelta(minutes=1)
@@ -145,7 +145,7 @@ def check_form(**kw) -> dict:
 @pytest.fixture()
 def hand_market(monkeypatch):
     b = q98(300, extra={90: (100.2, 99.3)})
-    mk = C.Market.from_m1(b, tfs=("1m", "5m"))
+    mk = fake_market(b, tfs=("1m", "5m"))
     monkeypatch.setattr(mk, "ruler", lambda tf, fp: np.full(len(mk.bars(tf)), RULER))
     return mk
 
@@ -203,7 +203,7 @@ def test_the_check_is_only_for_a_5_minute_gap_entry(hand_market):
     with pytest.raises(C.CompileError, match="needs a 'sweep' or 'false_breakout' step before it"):
         C.compile_idea(Idea.load(wedge), hand_market)
     with pytest.raises(C.CompileError, match="1m bars"):
-        C.compile_idea(Idea.load(check_form()), C.Market.from_m1(fake_m1(days=3), tfs=("5m",)))
+        C.compile_idea(Idea.load(check_form()), fake_market(fake_m1(days=3), tfs=("5m",)))
 
 
 def test_the_check_is_no_longer_a_missing_block():
@@ -220,7 +220,7 @@ def m1():
 
 @pytest.fixture(scope="module")
 def market(m1):
-    return C.Market.from_m1(m1, tfs=("1m", "5m", "1h", "1d", "1w"))
+    return fake_market(m1, tfs=("1m", "5m", "1h", "1d", "1w"))
 
 
 def test_in_a_compile_a_setup_either_passes_unchanged_or_waits_for_the_take(market):
@@ -250,7 +250,7 @@ def test_compiled_signals_with_the_1_minute_check_do_not_peek(m1):
     idea = Idea.load(check_form())
 
     def signals_of(bars):
-        mk = C.Market.from_m1(bars, tfs=("1m", "5m", "1h", "1d", "1w"))
+        mk = fake_market(bars, tfs=("1m", "5m", "1h", "1d", "1w"))
         rows = [s.model_dump(include={"known_at", "direction", "entry_price", "stop", "targets"})
                 for s in C.compile_idea(idea, mk).signals]
         return pd.DataFrame(rows, columns=["known_at", "direction", "entry_price", "stop", "targets"])
@@ -263,7 +263,7 @@ def test_compiled_signals_with_the_1_minute_check_do_not_peek(m1):
 
 def test_a_zone_break_without_1_minute_bars_says_the_lines_were_not_read(m1, market):
     from tests.test_zones import ZB
-    without = C.compile_idea(Idea.load(ZB), C.Market.from_m1(m1))
+    without = C.compile_idea(Idea.load(ZB), fake_market(m1))
     assert any("1-minute lines inside a zone" in n for n in without.notes)
     with_1m = C.compile_idea(Idea.load(ZB), market)
     assert not any("1-minute lines inside a zone" in n for n in with_1m.notes)
@@ -277,7 +277,7 @@ def test_zone_break_signals_with_the_1_minute_lines_do_not_peek(m1):
     idea = Idea.load(ZB)
 
     def signals_of(bars):
-        mk = C.Market.from_m1(bars, tfs=("1m", "5m", "1h", "1d", "1w"))
+        mk = fake_market(bars, tfs=("1m", "5m", "1h", "1d", "1w"))
         rows = [s.model_dump(include={"known_at", "direction", "entry_price", "stop", "targets"})
                 for s in C.compile_idea(idea, mk).signals]
         return pd.DataFrame(rows, columns=["known_at", "direction", "entry_price", "stop", "targets"])

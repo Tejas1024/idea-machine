@@ -5,9 +5,15 @@ what I consider, it should be broken to consider as a makeup structure, break of
 in a uptrend, so not the green candle." His arrows on 9 charts (#58, #59, #60) fixed the rest: a WICK is enough.
 
   SELL side: the most recent RED candle in the rise, after which the move up - the candles until the next red one -
-             goes ABOVE that red candle's high (a wick is enough). A wick BELOW its low is the break of structure.
+             goes ABOVE that red candle's high (a wick is enough). A wick BELOW the LOWEST wick from the red candle to
+             the candle that went above its high is the break of structure (usually the red candle's own low).
   BUY side:  the mirror - the most recent GREEN candle in the drop, after which the drop goes below its low; a wick
-             ABOVE its high is the break.
+             ABOVE the highest wick from the green candle to the candle that went below its low is the break.
+
+The lowest wick, not only the red candle's own low: his 7 Oct 2026 NO to setup 3 of idea #4's picture (Telegram message
+1239, inbox 2026-10-07-1121-telegram.md): "it should have break the wick of the green candle which is right side to the
+red candle that u considered as break" - the green candle after the red one wicked 50 cents lower, and price broke only
+the red candle's low.
 
 A block is KNOWN when the candle that went past it closes (the old engine made it usable from the next candle - the
 same thing). Blocks of one side confirm in candle order, so "the most recent block" at any candle is simply the last
@@ -51,8 +57,17 @@ def _block_arrays(o, h, lo, c):
     return out
 
 
+def _levels(side: str, k, j, h, lo) -> np.ndarray:
+    """The price whose wick-through is the break, for blocks k confirmed at candles j: a sell's = the LOWEST wick from
+    the block candle to the confirming candle (both included), a buy's = the highest (his 7 Oct 2026 words, above).
+    Only candles up to the confirming one: known when the block is."""
+    arr, f = (lo, np.min) if side == "sell" else (h, np.max)
+    return np.array([f(arr[a:b + 1]) for a, b in zip(k, j)], dtype=float)
+
+
 def order_blocks(bars: pd.DataFrame, tf: str) -> pd.DataFrame:
-    """Every order block. level = the price whose wick-through is the break (sell: the block's low; buy: its high)."""
+    """Every order block. level = the price whose wick-through is the break (sell: the lowest wick from the block to
+    its confirming candle; buy: the highest)."""
     check_bars(bars, tf)
     o, h, lo, c = (bars[x].to_numpy(dtype=float) for x in ("open", "high", "low", "close"))
     if len(c) < 2:
@@ -62,7 +77,7 @@ def order_blocks(bars: pd.DataFrame, tf: str) -> pd.DataFrame:
     for side, (k, j) in _block_arrays(o, h, lo, c).items():
         parts.append(pd.DataFrame({"known_at": closes[j], "side": side, "block_bar": bars.index[k],
                                    "block_high": h[k], "block_low": lo[k],
-                                   "level": lo[k] if side == "sell" else h[k], "confirmed_bar": bars.index[j]}))
+                                   "level": _levels(side, k, j, h, lo), "confirmed_bar": bars.index[j]}))
     out = pd.concat(parts, ignore_index=True)
     return out.sort_values(["known_at", "side"], kind="stable", ignore_index=True)
 
@@ -90,14 +105,15 @@ def breaks(bars: pd.DataFrame, tf: str) -> pd.DataFrame:
             continue
         start = j + 1                                   # the block is the most recent from here ...
         end = np.append(j[1:] + 1, n)                   # ... until the next block of its side is known
+        level = _levels(side, k, j, h, lo)
         if side == "sell":
-            i = first_hit(lo, start, lo[k], "<", ends=end)
+            i = first_hit(lo, start, level, "<", ends=end)
         else:
-            i = first_hit(h, start, h[k], ">", ends=end)
+            i = first_hit(h, start, level, ">", ends=end)
         ok = i >= 0
-        k, i = k[ok], i[ok]
+        k, i, level = k[ok], i[ok], level[ok]
         parts.append(pd.DataFrame({"known_at": closes[i], "side": side, "bar": bars.index[i],
-                                   "level": lo[k] if side == "sell" else h[k], "block_bar": bars.index[k]}))
+                                   "level": level, "block_bar": bars.index[k]}))
     if not parts:
         return empty(BREAK_COLUMNS)
     out = pd.concat(parts, ignore_index=True)
@@ -134,6 +150,8 @@ class BreakSearch:
         self.h, self.lo, self.n = h, lo, len(c)
         k, j = _block_arrays(o, h, lo, c)[side]
         self.cur = _current(self.n, k, j)
+        self.level = np.full(self.n, np.nan)            # at each block candle: the price whose wick-through breaks it
+        self.level[k] = _levels(side, k, j, h, lo)
 
     def after(self, s: int, until: int | None = None, start: int | None = None) -> dict | None:
         """The break for a setup whose sweep candle is at position s: the first candle s+1 ... until (positions,
@@ -149,10 +167,10 @@ class BreakSearch:
         kk = self.cur[first:end]
         ok = (kk >= 0) & (kk >= s - self.age)
         safe = np.where(kk >= 0, kk, 0)
-        hit = ok & ((self.lo[i] < self.lo[safe]) if self.side == "sell" else (self.h[i] > self.h[safe]))
+        hit = ok & ((self.lo[i] < self.level[safe]) if self.side == "sell" else (self.h[i] > self.level[safe]))
         if not hit.any():
             return None
         q = int(np.argmax(hit))
         b, blk = int(i[q]), int(kk[q])
         return {"known_at": bar_close(self.index[[b]], self.tf)[0], "bar": self.index[b],
-                "level": float(self.lo[blk] if self.side == "sell" else self.h[blk]), "block_bar": self.index[blk]}
+                "level": float(self.level[blk]), "block_bar": self.index[blk]}

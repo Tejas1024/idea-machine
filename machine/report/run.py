@@ -174,6 +174,7 @@ def main(argv=None) -> int:
         if a.send:
             line = B.send(b)
             store.set_state(a.idea, "REPORTED", f"L10: report sent ({line['id']})",
-                            waits_for="T6: Tejas reads the report and decides")
+                            waits_for="the machine: its choice after the report (LEARNED #162 - it decides and "
+                                      "tells him)")
             print(f"in the outbox: {line['id']} (the bot sends it)")
     return 0

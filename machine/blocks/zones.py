@@ -552,14 +552,18 @@ def reentry_price(zone: dict, reading: str) -> float | None:
     return None
 
 
-def nearest_edge(life: pd.DataFrame, i: int, side: str, price: float, max_away: float | None = None) -> dict | None:
+def nearest_edge(life: pd.DataFrame, i: int, side: str, price: float, max_away: float | None = None,
+                 min_rank: int = 0) -> dict | None:
     """The nearest edge of a live zone on `side` of price ("high" = above: a zone's LOW edge is where price meets it;
-    "low" = below: its HIGH edge) - "Target = next liquidity / zone" (B1-49). A zone price stands in is not ahead."""
-    z = alive(life, i)
+    "low" = below: its HIGH edge) - "Target = next liquidity / zone" (B1-49). A zone price stands in is not ahead.
+    "far" = its other edge (where price has gone through it: the zone grid's hedge, L19c M31). min_rank: at least
+    that rank (0 = any window, 1 = week or hour, 2 = the hour chart)."""
+    z = alive(life, i, min_rank)
     if not len(z):
         return None
     up = side == "high"
     edge = z["lo"].to_numpy(float) if up else z["hi"].to_numpy(float)
+    other = z["hi"].to_numpy(float) if up else z["lo"].to_numpy(float)
     d = (edge - price) if up else (price - edge)
     ok = d > 0
     if max_away is not None:
@@ -568,4 +572,5 @@ def nearest_edge(life: pd.DataFrame, i: int, side: str, price: float, max_away: 
         return None
     k = int(np.argmin(np.where(ok, d, np.inf)))
     row = z.iloc[k]
-    return {"zone_id": row.zone_id, "price": float(edge[k]), "tier": int(row.tier), "rank": int(row["rank"])}
+    return {"zone_id": row.zone_id, "price": float(edge[k]), "far": float(other[k]), "tier": int(row.tier),
+            "rank": int(row["rank"])}

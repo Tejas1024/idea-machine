@@ -59,9 +59,13 @@ _FIXED = {
     "what_counts_as_the_break": Rule(
         value="order_block_wick",
         means="The break of structure is a wick through his order block. SELL: the most recent RED candle in the rise, "
-              "after which price went above its high (a wick is enough); a wick below its low is the break. BUY: the "
-              "mirror - the most recent GREEN candle in the drop; a wick above its high is the break.",
-        taught="LEARNED #56, #57, #58, #59, #60 (his arrows on 9 charts)",
+              "after which price went above its high (a wick is enough); a wick below the LOWEST wick from that red "
+              "candle to the candle that went above its high is the break (usually the red candle's own low). BUY: the "
+              "mirror - the most recent GREEN candle in the drop; a wick above the highest wick from it to the candle "
+              "that went below its low is the break.",
+        taught="LEARNED #56, #57, #58, #59, #60 (his arrows on 9 charts); the lowest wick: his 7 Oct 2026 NO to setup 3 "
+               "of idea #4's picture (Telegram message 1239, inbox 2026-10-07-1121-telegram.md - numbered when it "
+               "reaches main)",
         words="the recent order block, that I would consider the low of the recent order block. That what I consider, "
               "it should be broken to consider as a makeup structure, break of structure. … It is the red candle in a "
               "uptrend, so not the green candle.",
@@ -357,6 +361,91 @@ _PARTS = {
 PARTS: Mapping[str, Rule] = MappingProxyType(_PARTS)
 
 ALL: Mapping[str, Rule] = MappingProxyType({**_FIXED, **_PARTS})
+
+
+# ------------------------------------------------------------------------------- his FIXED management rules (T12)
+# How a trade is looked after, his way: the rows his management table marks "fixed" (plan/work/management-decisions.md,
+# T12, 28 Sep 2026; the order of trust in CLAUDE.md settled every conflict there). They are not in ALL above: they are
+# carried by settings of status "his" in machine/settings.py (or by the code itself), because the 2x2 test and the
+# #105 comparison run them the other way as LABELLED comparisons (settings.resolve lists them in breaks_his_rules).
+# What makes them fixed for research: no version may change them - machine/mcp/versions.py refuses each with its row.
+# The rows marked "test" are versions the research agent may try: machine/tester/management.py (L19c).
+
+@dataclass(frozen=True)
+class Managed:
+    rule: str                        # his rule, plain words
+    taught: str                      # the lessons / his files
+    carried_by: tuple[str, ...]      # the settings (status "his") that hold it; () = the code itself is the rule
+    built: str                       # where the code does it
+
+
+_MANAGEMENT = {
+    "M01": Managed("No stop loss - a hedge instead; the hedge point is the protection.", "#9, #17; strategy.md 11",
+                   (), "machine/tester/hedging.py (a real stop is the M02 version, a_real_stop_instead_of_the_hedge)"),
+    "M03": Managed("The hedge point = the high (sell) / low (buy) of the swing where the liquidity was taken and the "
+                   "break formed.", "#9, #33, #111", (), "the idea's exit.at (the grab's extreme), machine/ideas"),
+    "M05": Managed("0.01 lot on every leg, the same on both.", "strategy.md 11; #116", ("lot_size",),
+                   "machine/tester/hedging.py"),
+    "M06": Managed("Decide at entry: the hour AND the day with the trade -> the hedge waits at the next liquidity; "
+                   "otherwise at the hedge point.", "#111; strategy.md 11",
+                   ("give_it_room_before_covering", "decide_at_entry"), "machine/tester/hedging.py"),
+    "M08": Managed("A buy at the all-time high gets room to the next buy zone.", "strategy.md 12; #97",
+                   ("room_at_the_all_time_high",), "counted only - not built for every entry (the zone break carries "
+                   "its own all-time-high hedge, #97)"),
+    "M10": Managed("While hedged, a leg closes only when a full opposite setup of his forms - never at a level on its "
+                   "own.", "#47, #113", ("which_entries_can_close_a_position", "hedge_closes_on"),
+                   "machine/tester/hedging.py + machine/entries/closers.py"),
+    "M11": Managed("That setup closes the leg it points against, even at a loss.", "#134 (newer than #105, #112)",
+                   ("which_leg_may_close_while_covered",),
+                   "machine/tester/hedging.py (#105 'profit' runs as a labelled comparison only)"),
+    "M12": Managed("After every hedge no leg closes until price is 4 x the hedge distance from the current entry.",
+                   "#107, #108, #111, #134", ("how_far_before_any_leg_may_close", "where_profit_is_measured_from"),
+                   "machine/tester/hedging.py"),
+    "M13": Managed("Act only on proper liquidity - a full sweep -> break -> gap.", "#95, #47", (),
+                   "machine/tester/hedging.py (only his setups close)"),
+    "M14": Managed("Once hedged, the first trade's target is gone.", "#51", ("target_once_hedged",),
+                   "machine/tester/hedging.py"),
+    "M15": Managed("The leg left after a close is a NEW trade at that price, with its own FIXED hedge.", "#22, #104",
+                   ("leg_left_is_a_new_entry", "hedge_after_a_close", "carried_leg_hedge",
+                    "what_the_leg_left_over_aims_at"), "machine/tester/hedging.py"),
+    "M16": Managed("Its target: past the 1:4 zone, then the next real liquidity.", "#111, #112, #124, #125",
+                   ("what_the_leg_left_over_aims_at_after_a_cover",), "machine/tester/hedging.py"),
+    "M17": Managed("The whole trade decides: one leg may end at a loss if the whole trade ends in profit.", "#112",
+                   ("does_the_whole_trade_decide_a_close", "leg_left_close", "carried_leg_close"),
+                   "machine/tester/hedging.py"),
+    "M18": Managed("One trade at a time; no second independent trade.", "#55",
+                   ("how_many_trades_at_once", "a_new_setup_resolves_the_hedge"), "machine/tester/hedging.py"),
+    "M19": Managed("No timeout - a trade ends when price ends it.", "#19, #20, #104",
+                   ("no_timeout", "hedged_setup_wait_bars"), "machine/tester/hedging.py"),
+    "M20": Managed("No floor - no 'close everything N ranges away'.", "#53", ("floor", "a_floor_under_the_reward"),
+                   "machine/tester/hedging.py"),
+    "M23": Managed("Trailing only when not hedged: the hour AND the day against -> the first target; with -> hold to "
+                   "the next liquidity unless an opposite setup forms there.", "#82, #133",
+                   ("trail_the_target", "trail_only_when_not_hedged"), "machine/tester/hedging.py"),
+    "M25": Managed("The target moves - it keeps seeking the next liquidity.", "#20", ("the_target_moves",),
+                   "machine/tester/hedging.py"),
+    "M26": Managed("All at once - no partial closes.", "strategy.md 10", (), "machine/tester/hedging.py"),
+    "M27": Managed("On a trendline entry the hedge moves with the line.", "#69", ("the_cover_follows_the_trendline",),
+                   "machine/tester/hedging.py (how far past the line: the version trendline_hedge_pad_adr)"),
+    "M28": Managed("News: in profit -> close; at break-even or any loss -> hedge at the price then.", "#110, #17",
+                   ("what_news_does",), "machine/tester/hedging.py (which news and how many minutes before: versions)"),
+    "M36": Managed("Rs 40 per 0.01-lot position, all-in; no swap.", "#54, #115", ("cost_per_position",),
+                   "machine/costs.py"),
+    "M38": Managed("Money: 2 x the Monday ADR range per 0.01 lot; the money at work stays the same.",
+                   "#115, #116, #127, #133", ("lot_size",), "machine/money (L20)"),
+    "M39": Managed("A limit order still waiting is cancelled by a newer setup.", "inbox 2026-09-28-0203; #55", (),
+                   "machine/tester/engine.py"),
+}
+
+MANAGEMENT: Mapping[str, Managed] = MappingProxyType(_MANAGEMENT)
+
+
+def managed_by(setting: str) -> tuple[str, Managed] | None:
+    """(row, his fixed management rule) that a setting of status "his" carries, or None."""
+    for row, m in MANAGEMENT.items():
+        if setting in m.carried_by:
+            return row, m
+    return None
 
 _ALIAS: dict[str, str] = {}
 for _name, _rule in ALL.items():

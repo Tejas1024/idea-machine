@@ -138,6 +138,39 @@ def test_the_agent_call_has_no_built_in_tool_and_only_the_servers_given(monkeypa
     assert b.output is None and "did not start" in b.error
 
 
+def test_a_tool_answer_claude_code_cut_is_an_error_never_a_quiet_plan_without_it():
+    """The 8 Oct rehearsal (L10b): list_blocks' answer (65,918 characters) never reached the planner - Claude Code
+    saved it to a file the planner cannot open, in every plan so far. Each tool now tells Claude Code to pass its
+    whole answer, and a cut answer is an error."""
+    from mcp import Client
+    import asyncio
+
+    async def metas(**kw):
+        async with Client(SRV.build(None, **kw)) as c:
+            return {t.name: t.meta for t in (await c.list_tools()).tools}
+    for kw in ({"plan": True}, {"strategy_plan": True}, {}):
+        tools = asyncio.run(metas(**kw))
+        assert tools and all(m == SRV.WHOLE for m in tools.values()), tools
+    assert len(json.dumps(T.list_blocks(), ensure_ascii=False)) < SRV.WHOLE["anthropic/maxResultSizeChars"] * 0.8
+
+    def stream(said):
+        return "\n".join(json.dumps(x) for x in [
+            {"type": "system", "subtype": "init", "mcp_servers": [{"name": "research", "status": "connected"}]},
+            {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "t1", "name":
+                                                           "mcp__research__list_blocks", "input": {}}]}},
+            {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": said}]}},
+            {"type": "result", "subtype": "success", "is_error": False, "num_turns": 3,
+             "structured_output": {"x": 1}, "usage": {}, "modelUsage": {"claude-opus-5": {}}}])
+    for said in ("<persisted-output>\nOutput too large (48.9KB). Full output saved to: tool-results/a.json",
+                 "Error: result (65,918 characters) exceeds maximum allowed tokens. Output has been saved to a.txt"):
+        a = llm.read_agent_stream(stream(said), model="m", seconds=1, servers=("research",))
+        assert a.output is None and "cut the answer of list_blocks" in a.error
+        assert not S._his_limit(a.error)                       # not his usage limit: this one never fixes itself
+    whole = llm.read_agent_stream(stream('{"blocks":"BLOCKS (steps) ..."}'), model="m", seconds=1,
+                                  servers=("research",))
+    assert whole.output == {"x": 1} and whole.error is None
+
+
 def test_a_refused_plan_goes_back_once_then_a_session_looks(home):
     make_idea("idea-101", slices=[])
     bad = raw_plan(2, changes=[{"path": "directions", "value": "sell"}])          # a slice dressed as a version
@@ -305,6 +338,28 @@ def test_pure_noise_with_a_small_budget_says_chance(home):
     assert "the referee: chance" in R.log_path("idea-101").read_text(encoding="utf-8")
 
 
+def test_a_plan_with_versions_of_his_management_runs_them_with_his_hedge_and_lists_them_as_run(home):
+    """What 8 Oct's plan may hold (idea #3's rehearsed plan, 2 Oct: 3 rows of his management): plain versions and a
+    version that changes his management, in one plan. That one runs WITH HIS HEDGE (L19c), the referee chooses among
+    the plain ones, and the list of every version shows it with its numbers - not "did not run", as the made-up-price
+    rehearsal of 8 Oct found (L10b, 4 Oct)."""
+    from machine.report.build import check_words
+    from tests.test_management import hedged_bench
+    make_idea("idea-101", slices=[])
+    raw = raw_plan(2)
+    raw["versions"].append({**raw["versions"][0], "name": "at most 3 covers", "why": "his table T12 lists it as a test row",
+                            "changes": [{"path": "exit.management.how_many_covers_allowed", "value": 3}]})
+    out = R.run("idea-101", planner=scripted(raw), bench=hedged_bench(check=check_fn), say=lambda *_: None)
+    assert out.status == "reported", out.said
+    assert sorted(f["kind"] for f in trials.load() if f["idea_id"] == "idea-101").count("hedging") == 1
+    final = R.final_path("idea-101").read_text(encoding="utf-8")
+    assert "did not run" not in final and "3 in the family" in final
+    [line] = [ln for ln in final.splitlines() if ln.startswith("3. at most 3 covers - ")]
+    assert ": with your hedge: " in line and "trades closed" in line
+    assert "your management as it is, on the same setups:" in line and "CHOSEN" not in line   # plain ones are judged
+    assert check_words(final) == []
+
+
 def test_a_second_run_does_not_run_anything_again(home):
     make_idea("idea-101", slices=[])
     R.run("idea-101", planner=scripted(raw_plan(2)), bench=bench(check=check_fn), say=lambda *_: None)
@@ -345,11 +400,83 @@ def test_the_intake_runs_the_research_agent_after_his_yes(home, monkeypatch):
 def test_the_intake_tries_a_planning_call_with_no_answer_again_then_a_session_looks(home, monkeypatch):
     make_idea("idea-101", slices=[])
     monkeypatch.setattr(config, "RESEARCH_AGENT", True)
-    t = S.Tools(research=lambda idea, **kw: R.Outcome(idea, "no answer", "his usage limit"), log=lambda *_: None)
+    t = S.Tools(research=lambda idea, **kw: R.Outcome(idea, "no answer", "no network"), log=lambda *_: None)
     for _ in range(config.RESEARCH_TRIES - 1):
         assert S.step("idea-101", t) is False and not S.state_of("idea-101").get("needs")
     S.step("idea-101", t)
     assert "no answer 3 times" in S.state_of("idea-101")["needs"]["why"]
+
+
+LIMIT = ("the planning call got no answer: claude -p: You've hit your session limit · resets 12:10am - his plan's "
+         "usage limit: run again when it resets")
+
+
+def test_his_usage_limit_never_needs_a_session_and_the_idea_goes_on_by_itself(home, monkeypatch):
+    """L10b, the 8 Oct rehearsal: his Claude plan's limit resets by itself. Three tries in an hour and then 'a session
+    looks' would be a manual step for nothing - and the idea would stay stuck after the limit was over."""
+    make_idea("idea-101", slices=[])
+    monkeypatch.setattr(config, "RESEARCH_AGENT", True)
+    out = {"now": R.Outcome("idea-101", "no answer", LIMIT)}
+
+    def research(idea, **kw):
+        if out["now"].status == "reported":
+            store.set_state(idea, "REPORTED", "test", waits_for="T6")
+        return out["now"]
+    t = S.Tools(research=research, log=lambda *_: None)
+    before = len(S.state_of("idea-101")["history"])
+    for _ in range(config.RESEARCH_TRIES * 4):                       # six hours of runs, every 30 minutes
+        assert S.step("idea-101", t) is False
+    s = S.state_of("idea-101")
+    assert "needs" not in s and "research_failures" not in s and "usage limit" in s["waits_for"]
+    assert len(s["history"]) == before + 1                           # one line for the whole wait, not one per try
+    told = [x for x in S._read_jsonl(S.outbox_path()) if x.get("why") == "L10b waits for his usage limit"]
+    assert len(told) == 1 and "You don't need to do anything" in told[0]["text"]
+    assert not [x for x in S._read_jsonl(S.outbox_path()) if "Claude session" in x["text"]]
+    out["now"] = R.Outcome("idea-101", "reported", "chance: the referee chose v-x", "final", "chance", "sha")
+    assert S.step("idea-101", t) is True                             # the limit is over: it goes on by itself
+    s = S.state_of("idea-101")
+    assert s["state"] == "REPORTED" and "limit_since" not in s
+
+
+def test_a_plan_code_refused_is_asked_again_at_the_next_run_before_a_session_looks(home, monkeypatch):
+    """L10b, the 8 Oct rehearsal: idea #3's real plan was refused twice (its slices named with sentences) and the
+    idea asked for a session at once. Nothing is saved or counted by a refused plan: a new call may pass."""
+    make_idea("idea-101", slices=[])
+    monkeypatch.setattr(config, "RESEARCH_AGENT", True)
+    refused = R.Outcome("idea-101", "needs a session", "code refused idea-101's plan 2 times: slice ...", again=True)
+    t = S.Tools(research=lambda idea, **kw: refused, log=lambda *_: None)
+    for n in range(1, config.RESEARCH_TRIES):
+        assert S.step("idea-101", t) is False
+        s = S.state_of("idea-101")
+        assert "needs" not in s and s["research_failures"] == n and "asks for a new plan" in s["waits_for"]
+    S.step("idea-101", t)
+    assert "code refused the research plan 3 times" in S.state_of("idea-101")["needs"]["why"]
+    S.retry("idea-101")                                              # a session looked: the count starts new
+    assert "research_failures" not in S.state_of("idea-101")
+    stuck = R.Outcome("idea-101", "needs a session", "3 planned versions in a row could not run - a session looks")
+    S.step("idea-101", S.Tools(research=lambda idea, **kw: stuck, log=lambda *_: None))
+    assert "the research agent stopped" in S.state_of("idea-101")["needs"]["why"]      # not a plan: a session at once
+
+
+def test_the_answers_shape_holds_a_slice_to_the_real_names_and_a_refusal_says_how_to_fix_it(home):
+    """What the rehearsal's plan did: 'The session the sell is entered in' as a slice's name. The answer's shape now
+    lists the real names (Claude cannot write another), and code's reason names them (the fix-up call can fix it)."""
+    from machine.ideas.form import SLICE_DIMENSIONS
+    from machine.learner import conditions
+    item = R.plan_schema()["properties"]["slices"]["items"]["properties"]
+    assert item["name"]["enum"] == sorted(conditions.BY_NAME) and "session" in item["name"]["enum"]
+    assert item["dimension"]["enum"] == list(SLICE_DIMENSIONS)
+    assert "enum" not in R.PLAN_SCHEMA["properties"]["slices"]["items"]["properties"]["name"]   # the copy only
+    make_idea("idea-101", slices=[])
+    sentence = [{"name": "The session the sell is entered in", "dimension": "session", "how": "Asia / London / New York",
+                 "why": "his sessions decide his levels"}]
+    plan, problems = R.check_plan("idea-101", raw_plan(1, slices=sentence))
+    assert not plan["slices"] and len(problems) == 1
+    assert "EXACTLY" in problems[0] and "session, new_york" in problems[0] and '"how" and "why"' in problems[0]
+    wrong = [{**sentence[0], "name": "session", "dimension": "time"}]
+    assert "its dimension is 'session', not 'time'" in R.check_plan("idea-101", raw_plan(1, slices=wrong))[1][0]
+    out = R.run("idea-101", planner=scripted(raw_plan(1, slices=sentence)), bench=bench(), say=lambda *_: None)
+    assert out.status == "needs a session" and out.again is True and R.load_plan("idea-101") is None
 
 
 # ================================================================================================= the noise exam's parts

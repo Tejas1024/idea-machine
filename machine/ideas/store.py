@@ -165,6 +165,8 @@ def _move(idea_id: str, s: dict, state: str, note: str, waits_for: str | None) -
     now = _now()
     s.pop("needs", None)                                    # what the old state waited a person for (L10b) is done
     s.pop("talker_failures", None)
+    s.pop("research_failures", None)                        # the step that failed went through: the count starts new
+    s.pop("limit_since", None)                              # the wait for his Claude plan's usage limit is over
     s.update(state=state, since=now, waits_for=waits_for)
     s["history"].append({"state": state, "at": now, "note": note})
     _write(folder(idea_id) / STATE, _json(s))

@@ -229,6 +229,25 @@ def idea_name(idea_id: str) -> str:
     return f"Idea #{int(m.group(1))}" if m else idea_id
 
 
+def family_line(f: Facts) -> str:
+    """The report's "family of": the form's parent_idea, or the older idea the research tools found (likhith.md
+    section D - the same blocks, chart and entry; its trial files carry it, the form does not). Named, never a code
+    id (#113)."""
+    parent = f.form.parent_idea or f.judge.get("parent_idea")
+    if not parent:
+        return "new (no older idea)"
+    from machine.entries import forms
+    e = forms.ENTRY_TYPES.get(parent)
+    name = e.title if e is not None else idea_name(parent)
+    if f.form.parent_idea:
+        return name
+    out = f"{name} (the same blocks, chart and entry: a version of it)"
+    if f.mode == "walk-forward":
+        out += (f" - the hidden years {years_text(config.CHECK_YEARS)} were opened once for that family, so this one "
+                f"is judged inside {years_text(config.TUNE_YEARS)}")
+    return out
+
+
 def of100(a: int, b: int) -> str:
     return "no trades" if not b else f"{round(100 * a / b)} of 100"
 
@@ -273,8 +292,9 @@ def outcome_lines(f: Facts) -> list[str]:
         return [f"Then (your hedge idea): closed in profit {of100(o['in_profit'], filled)} · closed at a loss "
                 f"{of100(o['at_a_loss'], filled)} · still open at the end {of100(o['open_at_end'], filled)} "
                 f"({o['in_profit']} · {o['at_a_loss']} · {o['open_at_end']} of {filled} trades)",
-                f"  How it was tested: the hedge point was treated as a plain stop, because the hedging tester (L19a) "
-                f"is not built yet. Reached the target before the hedge point: {of100(o['target_first'], o['closed'])}"
+                f"  How it was tested: the hedge point was treated as a plain stop (every idea is judged this way; "
+                f"your hedge is tested apart). Reached the target before the hedge point: "
+                f"{of100(o['target_first'], o['closed'])}"
                 f" ({o['target_first']} of {o['closed']} closed trades)."]
     return [f"Then: hit the target before the stop {of100(o['target_first'], o['closed'])} "
             f"({o['target_first']} of {o['closed']} closed trades; still open at the end, not counted: "
@@ -357,7 +377,7 @@ def summary_lines(f: Facts, slice_counts: bool = True, short: bool = False) -> l
     r, form = f.r, f.form
     p, fk, rnd, wb, ex = r["path"], r["fake_levels"], r["random"], r["without_best"], r["extra_lines"]
     counts, proj, seen = r["counts"], f.project, r["already_seen"]
-    parent = form.parent_idea or "new (no older idea)"
+    parent = family_line(f)
     stop_word = "hedge point" if f.hedged else "stop"
     lines = [
         f"{idea_name(form.id)} — {form.title}",

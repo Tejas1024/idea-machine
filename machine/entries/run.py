@@ -351,14 +351,19 @@ def _record(v: Version, data: dict, facts, rules, n_runs: int, window, book) -> 
     trades_table(o["replays"]["stop"].trades).to_csv(folder / f"{tag}-plain-stop-trades.csv", index=False)
     with (folder / f"{tag}-hedged-stories.jsonl").open("w", encoding="utf-8") as f:
         for t in o["replays"]["hedge"].trades:
-            legs = [{"direction": x.direction, "opened": _when(book, x.open_i), "open_px": x.open_px,
-                     "why_open": x.why_open, "closed": _when(book, x.close_i), "close_px": x.close_px,
-                     "why_closed": x.why_closed, "net_inr": None if x.pnl is None else round(x.pnl.net_inr, 2)}
-                    for x in t.legs]
-            f.write(json.dumps({"signal": t.signal_id, "status": t.status, "net_inr": t.net_inr,
-                                "story": [{**r, "ts": str(r["ts"])} for r in t.story], "legs": legs},
-                               ensure_ascii=False) + "\n")
+            f.write(json.dumps(story(t, book), ensure_ascii=False) + "\n")
     return path
+
+
+def story(t: hedging.HedgedTrade, book) -> dict:
+    """One hedged trade as the stories file keeps it: every leg (open, close, price, why, its money) and what happened
+    (L20 reads it minute by minute, and makes trades again in the same shape)."""
+    legs = [{"direction": x.direction, "opened": _when(book, x.open_i), "open_px": x.open_px,
+             "why_open": x.why_open, "closed": _when(book, x.close_i), "close_px": x.close_px,
+             "why_closed": x.why_closed, "net_inr": None if x.pnl is None else round(x.pnl.net_inr, 2)}
+            for x in t.legs]
+    return {"signal": t.signal_id, "status": t.status, "net_inr": t.net_inr,
+            "story": [{**r, "ts": str(r["ts"])} for r in t.story], "legs": legs}
 
 
 def _when(book, i):

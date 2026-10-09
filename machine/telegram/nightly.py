@@ -339,6 +339,10 @@ def message(res: Result) -> str | None:
     lines = []
     copied = [f["path"] for f in res.of("copy", "join")]
     if res.branch:
+        if res.older:            # FIRST, before any link (4 Oct 2026: the older one was merged first, this one clashed)
+            lines.append(f"{len(res.older) + 1} links wait. This one also has everything from "
+                         f"{', '.join(res.older)}. Merge only this one; close the older one - merging it first makes "
+                         "this one clash.")
         lines.append(f"Your bot's files from today are on GitHub: {kinds(copied)}.")
         if res.pr:
             lines += ["Open this pull request and press \"Merge pull request\":", res.pr]
@@ -347,9 +351,6 @@ def message(res: Result) -> str | None:
         else:
             lines.append(f"They are on the branch {res.branch}.")
         lines.append("GitHub's main does not change until you merge.")
-        if res.older:
-            lines.append(f"This one also has everything from {', '.join(res.older)}. Merge only this one; "
-                         "you can close the older one.")
     bad = res.of("conflict")
     if bad:
         lines.append("Not copied, because it changed both on your PC and on GitHub (a Claude session can join it): "

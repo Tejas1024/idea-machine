@@ -211,7 +211,10 @@ def test_a_second_run_the_same_day_gets_a_new_branch_and_says_it_has_the_older_o
     assert second.branch == "bot/2026-09-29-2" and second.older == ["bot/2026-09-29"]
     assert on_branch(r, second.branch) == on_branch(r, first.branch) | {
         "strategy/learned-inbox/2026-09-29-2350-telegram.md"}
-    assert "also has everything from bot/2026-09-29. Merge only this one" in N.message(second)
+    text = N.message(second)
+    assert "also has everything from bot/2026-09-29. Merge only this one" in text
+    assert text.startswith("2 links wait.")                  # said before the link: on 4 Oct the older one was merged
+    assert "Merge only this one" not in N.message(first)      # one link waiting: nothing to choose
 
 
 def test_a_clone_the_job_did_not_make_is_never_touched(r):

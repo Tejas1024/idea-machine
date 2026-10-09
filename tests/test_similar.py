@@ -84,7 +84,8 @@ def test_one_step_of_each_part():
 
 def test_caps_missing_values_and_no_level():
     q = S.Query("Jobs report", T0, "after", z=5.0, group="big good for the dollar",
-                situation=dict(session="New York", up_level_kind=None, up_level_adr=np.nan, adr=20.0))
+                situation=dict(session="New York", up_level_kind=None, up_level_adr=np.nan, dn_level_kind=None,
+                               adr=20.0))
     pool = pd.DataFrame([
         dict(z=3.0, session="New York", up_level_kind=None, up_level_adr=np.nan, adr=20.0),      # z capped at 3
         dict(z=3.0, session=None, up_level_kind="equal_high", up_level_adr=2.5, adr=np.nan),      # far = 1 day
@@ -95,6 +96,17 @@ def test_caps_missing_values_and_no_level():
     assert p.loc[1, "step_session"] == 1.0 and p.loc[1, "step_adr"] == 1.0   # the past release lacks it: 1 step
     assert p.loc[1, "step_level_up"] == 0.0             # a level over one day's range away = none alive
     assert "step_bias_d" not in p and "step_level_dn" in p       # no level below in the question = far, compared
+
+
+def test_a_question_with_no_situation_gives_the_latest_releases():
+    """A live question before its levels are measured (L17a): no level part (it was not measured - NOT "no level
+    alive"), so all steps are 0 and the ties give the most recent releases: what 'The last 10 ... days' says."""
+    tab = rows(30, up_level_kind=[None] * 10 + ["equal_high"] * 20, up_level_adr=[np.nan] * 10 + [0.1] * 20)
+    res = S.lookup(tab, S.Query("Jobs report", T0, "before"))
+    assert [c for c in res.near.columns if c.startswith("step_")] == []
+    assert list(res.near["time"]) == sorted(res.base["time"], reverse=True)[:10]   # not the 10 oldest (no level alive)
+    no_level_alive = S.Query("Jobs report", T0, "before", situation=dict(up_level_kind=None))
+    assert "step_level_up" in S.steps(tab, no_level_alive)        # None IS measured: no level alive, compared
 
 
 def test_ties_go_to_the_more_recent_and_k_is_10_or_fewer():

@@ -138,8 +138,10 @@ def london(sessions=("London",), **kw) -> dict:
 def signal_rows(signals) -> pd.DataFrame:
     rows = [{**s.model_dump(mode="python"), "targets": repr(s.targets)} for s in signals]
     cols = ["known_at", "id", "direction", "entry_type", "entry_price", "stop", "targets", "expiry_bars", "cancel_at",
-            "lots"]
+            "lots", "first_visit_from", "first_visit_to"]
     df = pd.DataFrame(rows, columns=cols)
+    for c in ("first_visit_from", "first_visit_to"):
+        df[c] = pd.to_datetime(df[c]).astype("int64", errors="ignore") if df[c].notna().any() else -1
     df["known_at"] = pd.to_datetime(df["known_at"])
     return df
 
@@ -258,8 +260,14 @@ def test_the_compile_is_deterministic(m1, market):
     assert len({s.id for s in one.signals}) == len(one.signals)
 
 
-@pytest.mark.parametrize("make", [type1, fib, comes_back, pair, london],
-                         ids=["type1", "fib", "comes_back", "pair", "london"])
+def type1_68(**kw) -> dict:
+    """Type 1 with G8 and his #68 check (the order fills only on price's first visit back into the setup's gaps)."""
+    return type1(do_not_enter=[dict(name="target_reached_first"),
+                               dict(name="price_comes_back_into_another_gap_first")], **kw)
+
+
+@pytest.mark.parametrize("make", [type1, fib, comes_back, pair, london, type1_68],
+                         ids=["type1", "fib", "comes_back", "pair", "london", "type1_68"])
 def test_compiled_signals_do_not_peek(m1, make):
     """Cut the 1-minute bars off at a moment: every signal known by then must be exactly the same (R4, lesson B1)."""
     idea = Idea.load(make())
@@ -269,6 +277,26 @@ def test_compiled_signals_do_not_peek(m1, make):
 
     n = len(m1)
     guards.assert_no_future_events(signals_of, m1, 1, [n // 2 + 7, (3 * n) // 4 + 131, n - 1441])
+
+
+def test_the_68_check_stamps_each_order_with_its_own_grab_and_gap(market):
+    """price_comes_back_into_another_gap_first: every order carries first_visit_from = the open of its grab's candle
+    and first_visit_to = the close of its gap's 3rd candle or of the candle after the break, whichever is later (the
+    old engine's arming candle); the rest of the order is the same as without the check. Only for a limit at a gap."""
+    with_68 = C.compile_idea(Idea.load(type1_68()), market, trace=True)
+    plain = C.compile_idea(Idea.load(type1(do_not_enter=[dict(name="target_reached_first")])), market)
+    assert with_68.signals and len(with_68.signals) == len(plain.signals)
+    five = pd.Timedelta(minutes=5)
+    facts = {r["signal"]: r["facts"] for r in with_68.trace if r.get("signal")}
+    for s, p in zip(with_68.signals, plain.signals):
+        f = facts[s.id]
+        assert pd.Timestamp(s.first_visit_from) == pd.Timestamp(f["sweep"].get("gap_from", f["sweep"]["bar"]))
+        assert pd.Timestamp(s.first_visit_to) == max(pd.Timestamp(f["gap"]["bar"]), f["brk"]["bar"] + five) + five
+        assert s.model_dump(exclude={"first_visit_from", "first_visit_to", "id", "version_id"}) == \
+            p.model_dump(exclude={"id", "version_id"})
+    bad = type1_68(entry=dict(how="limit", at="brk.extreme", max_wait_bars="no limit"))
+    with pytest.raises(C.CompileError, match="only for a limit at a gap_of_the_move step"):
+        C.compile_idea(Idea.load(bad), market)
 
 
 def test_the_no_peek_test_catches_a_signal_stamped_early(m1, market):

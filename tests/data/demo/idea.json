@@ -5,7 +5,7 @@
   "talker_answer": {
     "voice_typing": [],
     "terms": [
-      {"term": "liquidity taken / sweep", "answered_by": "strategy.md §2 line 15"},
+      {"term": "liquidity taken / sweep", "answered_by": "strategy.md §1 line 10"},
       {"term": "first gap", "answered_by": null}
     ],
     "kind": "idea",

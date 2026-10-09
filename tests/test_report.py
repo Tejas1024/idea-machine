@@ -112,6 +112,24 @@ def test_the_lines_of_the_plan_are_all_there(hedged_idea):
     assert len(text) <= 4096
 
 
+def test_a_version_of_an_older_idea_names_that_idea_in_family_of():
+    """An idea with the same blocks, chart and entry as an older one is a version OF it (likhith.md section D): the
+    research tools find the older idea and the trial files carry it, the form does not. Found 8 Oct on made-up prices:
+    such an idea, judged inside 2016-2020 because the family's hidden years were used, was reported as "family of: new
+    (no older idea)" - the reader could not tell why 2021-2023 was not used."""
+    from types import SimpleNamespace
+    form = make_form("idea-902")
+    assert form.parent_idea is None
+    line = B.family_line(SimpleNamespace(form=form, judge={"parent_idea": "idea-900"}, mode="walk-forward"))
+    assert line.startswith("Idea #900 (the same blocks, chart and entry: a version of it)")
+    assert "the hidden years 2021–2023 were opened once for that family" in line and "inside 2016–2020" in line
+    assert B.check_words(line) == []
+    assert B.family_line(SimpleNamespace(form=form, judge={"parent_idea": None}, mode="check")) == \
+        "new (no older idea)"
+    assert B.family_line(SimpleNamespace(form=form, judge={"parent_idea": "entry-type1"}, mode="check")) \
+        .startswith("Type 1: liquidity taken, break, the first gap")
+
+
 def test_path_and_outcome_counts_on_hand_made_bars():
     """A limit that comes back, one that sees its target first (cancelled: never came back), one skipped while a
     trade is on, and a trade still open at the end - which is never a profit (lesson B6)."""

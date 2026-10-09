@@ -45,6 +45,8 @@ from machine.tester.models import Exit, Signal, Trade
 
 EPS = 1e-6                    # price comparisons (a millionth of a dollar; prices sit on a 1-cent grid)
 MINUTE_NS = 60 * 10**9
+FIVE_NS = 5 * MINUTE_NS
+FIRST_VISIT_SPENT = "spent: came back into the setup's gaps and turned away (#68)"
 NEVER = np.iinfo(np.int64).max
 REQUIRED = ("open", "high", "low", "close", "spread")
 CHECK_BEFORE_FILL = "a check before the fill"   # why a limit was cancelled by replay(cancel_by=...)
@@ -203,6 +205,9 @@ class _Bars:
             deadline = self.tf_open[j + s.expiry_bars] if j + s.expiry_bars < len(self.tf_open) else NEVER
             checked = cancel_by is not None and cancel_by < deadline
             end = int(cancel_by) if checked else deadline
+            spent = self._spent_at(s, t, end) if s.first_visit_from is not None else None
+            if spent is not None:
+                end, checked = spent, False
             i1 = int(np.searchsorted(self.t, end, "left")) if end != NEVER else self.n
             L = s.entry_price
             ih, ig = self._first_fill(i0, i1, L, s.cancel_at, buy)
@@ -211,6 +216,8 @@ class _Bars:
                 c = int(self.t[ig])
                 return Missed(c + MINUTE_NS, "target reached first", c + 1)
             if ih < 0:
+                if spent is not None:
+                    return Missed(end, FIRST_VISIT_SPENT, end)
                 if checked:
                     return Missed(end, CHECK_BEFORE_FILL, end)
                 return Missed(deadline, "window ended" if deadline == NEVER else "expired", deadline)
@@ -224,6 +231,45 @@ class _Bars:
         # a limit fills during minute i: before that minute starts it is still waiting
         wait = None if s.entry_type == "next_open" else int(self.t[i]) + 1
         return Filled(i, round(float(px), 6), bool(at_open), wait)
+
+    def _five(self):
+        """The window's 5-minute candles made from its 1-minute bars (his gap chart, bid prices): their opens (ns),
+        highs, lows and lowest ask - read once."""
+        if getattr(self, "_m5", None) is None:
+            g = bar_open_times(pd.DatetimeIndex(self.t), "5m").as_unit("ns").asi8
+            st = np.flatnonzero(np.r_[True, g[1:] != g[:-1]])
+            self._m5 = (g[st], np.maximum.reduceat(self.h, st), np.minimum.reduceat(self.lo, st),
+                        np.minimum.reduceat(self.lo + self.sp, st))
+        return self._m5
+
+    def _spent_at(self, s: Signal, t: int, end: int) -> int | None:
+        """His #68 (fvg.first_visit): the moment (ns) the waiting limit is spent - price came back into the setup's
+        gaps and a 5-minute candle turned away without reaching the entry, known at that candle's close - if it comes
+        before `end`; else None. Only candles that open at or after known_at, and a gap only from the candle after its
+        3rd, are read. "Reached the entry" is the order's own fill test (a buy: the ask): the order may fill only during
+        price's first visit - when the spread kept a buy limit from filling while the chart touched it, and price
+        turned away, a fill on a later return would be his second visit (7 Oct 2026: one such idea #4 buy filled 3
+        days later). The pictures draw the chart touch as the entry, as before (questions/pictures.entry_candle)."""
+        from machine.blocks import fvg                    # here: machine.blocks imports the tester's models
+        opens, h5, lo5, ask_lo5 = self._five()
+        buy, L = s.direction == "buy", s.entry_price
+        frm = pd.Timestamp(s.first_visit_from).as_unit("ns").value
+        to = pd.Timestamp(s.first_visit_to).as_unit("ns").value
+        j_from = int(np.searchsorted(opens, frm, "left")) + 2
+        j_to = int(np.searchsorted(opens, to - FIVE_NS, "right")) - 1      # the last candle closing by first_visit_to
+        gaps = fvg.setup_gaps(h5, lo5, j_from, j_to, s.direction)
+        k0 = int(np.searchsorted(opens, t, "left"))
+        k1 = len(opens) if end == NEVER else int(np.searchsorted(opens, end, "left"))
+
+        class _Reach:                     # the fill test of _first_fill, on a 5-minute candle
+            def __getitem__(self, sl):
+                return (ask_lo5[sl] <= L + EPS) if buy else (h5[sl] >= L - EPS)
+
+        what, k = fvg.first_visit(h5, lo5, _Reach(), gaps, k0, k1, s.direction)
+        if what != "spent":
+            return None
+        moment = int(opens[k]) + FIVE_NS
+        return moment if moment < end else None
 
     def _after_fill(self, s: Signal, i: int, px: float, at_open: bool) -> tuple[int, Trade]:
         """The stop and targets from the fill on: (release time ns, the trade)."""

@@ -1,0 +1,8 @@
+# His eyes (L15.2: machine/eyes - model B is ResNet18 from torchvision). Pinned from Tejas's PC, 8 Oct 2026: torch was
+# already there (requirements-search.txt); this added only torchvision. The CPU builds - no graphics card needed.
+# Install: python -m pip install -r requirements.txt -r requirements-eyes.txt
+# ResNet18's ImageNet weights (~45 MB) download once on the first run, then work offline (~/.cache/torch).
+# Without these, model B's tests skip and `python -m machine.eyes` stops at model B; model A needs only requirements.txt.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.14.0
+torchvision==0.29.0

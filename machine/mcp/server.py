@@ -41,16 +41,37 @@ the research plan. Nothing runs and no money is shown while the plan is made: th
 exactly that plan."""
 
 
+# Claude Code keeps a long tool answer away from Claude: past about 50,000 characters it saves the answer to a file and
+# shows a short preview, past its token limit it gives an error. The planner has no tool that reads a file, so it then
+# plans WITHOUT the answer. list_blocks was cut this way in every plan so far (idea #2: "Output too large (48.9KB)";
+# his whole strategy and idea #3's rehearsal: "result (65,918 characters) exceeds maximum allowed tokens") - found in
+# the 8 Oct rehearsal (L10b): idea #3's planner never saw the slice names and code refused its plan twice. This note on
+# a tool tells Claude Code to pass its whole answer (500,000 is the most it allows; checked with a real call: all 11
+# parts arrived). A cut answer is an error in llm.read_agent_stream, and tests/test_mcp.py keeps the size under it.
+WHOLE = {"anthropic/maxResultSizeChars": 500_000}
+
+STRATEGY_PLAN_TOOLS = T.STRATEGY_PLAN_TOOLS
+STRATEGY_PLAN_INSTRUCTIONS = """The idea machine's research tools, PLANNING ONLY, for Tejas's WHOLE strategy (L19d): his
+entries together, one trade at a time, his hedge and his management. Read it (get_strategy), what a version and a
+slice may be (list_blocks) and his documents (search_docs - his #129 rule), then write the research plan. Nothing runs
+and no money is shown while the plan is made: the plan is saved first, then code runs exactly that plan."""
+
+
 def build(idea: str | None = None, *, bench: T.Workbench | None = None, who: str | None = None,
-          plan: bool = False) -> MCPServer:
+          plan: bool = False, strategy_plan: bool = False) -> MCPServer:
     """The server for ONE research run (idea = its target; None = read-only). bench: hand-made prices (tests).
     plan=True: the research agent's PLANNING server (L14.2) - read-only, with ONLY get_idea, list_blocks and
-    search_docs: no tool that proposes, runs, draws, reports or shows a trial file is in it."""
-    if plan and idea is not None:
+    search_docs: no tool that proposes, runs, draws, reports or shows a trial file is in it.
+    strategy_plan=True: the planning server for his whole strategy (L19d) - ONLY get_strategy, list_blocks and
+    search_docs."""
+    if (plan or strategy_plan) and idea is not None:
         raise ValueError("the planning server is read-only: it has no research target")
+    if plan and strategy_plan:
+        raise ValueError("one planning server at a time: an idea's (plan) or his whole strategy's (strategy_plan)")
     T.start(idea, who)
     bench = bench or T.BENCH
-    server = MCPServer(name=NAME, instructions=PLAN_INSTRUCTIONS if plan else INSTRUCTIONS, version="L14.1")
+    server = MCPServer(name=NAME, instructions=(PLAN_INSTRUCTIONS if plan else STRATEGY_PLAN_INSTRUCTIONS
+                                                if strategy_plan else INSTRUCTIONS), version="L14.1")
 
     def call(fn, **kwargs) -> dict[str, Any]:
         try:
@@ -58,26 +79,33 @@ def build(idea: str | None = None, *, bench: T.Workbench | None = None, who: str
         except T.Refused as err:
             raise ToolError(f"REFUSED - {err}") from None
 
-    @server.tool()
+    @server.tool(meta=WHOLE)
     def get_idea(idea: str) -> dict[str, Any]:
         """One idea as the machine holds it: his words, its steps, entry, exit and targets, its unclear parts and
         their readings, its slices, its state, its family, the version budget and the check years. No money."""
         return call(T.get_idea, idea=idea)
 
-    @server.tool()
+    @server.tool(meta=WHOLE)
     def list_blocks() -> dict[str, Any]:
         """Every block, do-not-enter rule and filter a form may name; his fixed rules (never changed); the numbers a
         version may change; the rules of a version; the conditions a slice may name; the budgets and the years."""
         return call(T.list_blocks)
 
-    @server.tool()
+    @server.tool(meta=WHOLE)
     def search_docs(query: str, hits: int = 5) -> dict[str, Any]:
         """Search his documents (strategy.md, LEARNED.md, strategy-understanding.md, his rules, the lesson inbox, his
         answers) before anything is assumed - his #129 rule. FOUND with citations, or NOT FOUND with the closest line.
         Words only: no prices, no results."""
         return call(T.search_docs, query=query, hits=hits)
 
-    @server.tool()
+    @server.tool(meta=WHOLE)
+    def get_strategy() -> dict[str, Any]:
+        """His WHOLE strategy (L19d): the entries in it (his words, steps, entry, hedge, target), the entries that
+        wait for his words, one trade at a time, his management (fixed rows and the test rows a version may change),
+        what a version may change, the version budget, the years, already seen. No money."""
+        return call(T.get_strategy)
+
+    @server.tool(meta=WHOLE)
     def propose_version(idea: str, why: str, readings: dict[str, str] | None = None,
                         changes: dict[str, Any] | None = None) -> dict[str, Any]:
         """Propose ONE version of the research idea: `readings` = a reading for every VERSION part (get_idea
@@ -87,20 +115,20 @@ def build(idea: str | None = None, *, bench: T.Workbench | None = None, who: str
         IS, the 21st version of the family. Nothing runs; it counts as a try from now on. `why`: your reason."""
         return call(T.propose_version, idea=idea, why=why, readings=readings, changes=changes)
 
-    @server.tool()
+    @server.tool(meta=WHOLE)
     def run_version(idea: str, version: str, how: str = "tune") -> dict[str, Any]:
         """Run a version on 2016-2020: how="tune" = through the tester (trades, rupees by year, one trial file);
         how="walk-forward" = the referee judges the idea's versions inside 2016-2020 (choose on the years before,
         judge the next). Never 2021-2023, never 2024+. A long call: minutes."""
         return call(T.run_version, idea=idea, version=version, how=how, bench=bench)
 
-    @server.tool()
+    @server.tool(meta=WHOLE)
     def list_trials(idea: str) -> dict[str, Any]:
         """Every test run of the idea's family (plan/work/trials/): what ran, when, on which years, its numbers - the
         2021-2023 numbers only for this run's own idea once opened for that version. And the version budget."""
         return call(T.list_trials, idea=idea)
 
-    @server.tool()
+    @server.tool(meta=WHOLE)
     def draw_chart(idea: str, version: str, trade: int | str | None = None, start: str | None = None,
                    end: str | None = None, tf: str = "5m") -> dict[str, Any]:
         """ONE picture (a JPEG path): a trade of a version that ran (trade = 1 for its first closed trade, or a signal
@@ -108,7 +136,7 @@ def build(idea: str | None = None, *, bench: T.Workbench | None = None, who: str
         "2019-03-11 08:00", no time zone; tf 5m / 15m / 1h / 4h / 1d). Not sent to Tejas."""
         return call(T.draw_chart, idea=idea, version=version, trade=trade, start=start, end=end, tf=tf, bench=bench)
 
-    @server.tool()
+    @server.tool(meta=WHOLE)
     def write_report(idea: str, send: bool = False) -> dict[str, Any]:
         """The report, through L10: every version of the idea on 2016-2020, the referee chooses ONE (the highest
         Deflated Sharpe - the chance its edge is real, allowing for every version tried), 2021-2023 open ONCE for
@@ -116,17 +144,17 @@ def build(idea: str | None = None, *, bench: T.Workbench | None = None, who: str
         its picture. send=true also queues it for Tejas on Telegram. A long call: tens of minutes on real prices."""
         return call(T.write_report, idea=idea, send=send, bench=bench)
 
-    @server.tool()
+    @server.tool(meta=WHOLE)
     def choose_slices(idea: str, slices: list[dict[str, Any]], why: str) -> dict[str, Any]:
         """Choose the slices BEFORE any money is seen for the idea (at most 8 in all): each
         {"name": a condition from list_blocks, "dimension": its dimension, "how": in words, "why": ...}. Only these
         can become "works best in / fails in"; every other split is "looked at, not tested"."""
         return call(T.choose_slices, idea=idea, slices=slices, why=why)
 
-    if plan:
-        for t in list(server._tool_manager.list_tools()):
-            if t.name not in PLAN_TOOLS:
-                server.remove_tool(t.name)
+    keep = PLAN_TOOLS if plan else STRATEGY_PLAN_TOOLS if strategy_plan else None
+    for t in list(server._tool_manager.list_tools()):
+        if (keep is not None and t.name not in keep) or (keep is None and t.name == "get_strategy"):
+            server.remove_tool(t.name)          # get_strategy lives only on his whole strategy's planning server
     allowed ={name: set(inspect.signature(fn).parameters) for name, fn in
                ((t.name, t.fn) for t in server._tool_manager.list_tools())}
 

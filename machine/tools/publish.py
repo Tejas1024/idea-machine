@@ -32,12 +32,15 @@ from machine import config
 
 PUBLIC_DIRS = ("machine/", "tests/", "docs/")
 PUBLIC_FILES = (
-    "pyproject.toml", "requirements.txt", "requirements-search.txt", "requirements-live.txt", ".env.example",
+    "pyproject.toml", "requirements.txt", "requirements-search.txt", "requirements-live.txt", "requirements-eyes.txt",
+    ".env.example",
     # four small public tables the money and news code needs (not price data): Rs per $ by month (RBI / FBIL), the
     # demo broker's swap readings, which way each US number is good for the dollar, the 2-year Treasury yield (FRED)
     "data/usd_inr.csv", "data/swap.csv", "data/news/signs.csv", "data/news/dgs2.csv",
     # the old project's tries (the referee's rule 6: "years already seen") and the demo script
     "plan/work/prior-tries.csv", "plan/work/demo-script.md",
+    # Docker (L16.2): the tests, the dashboard and the demo in one command - code, nothing private (docs/DOCKER.md)
+    "Dockerfile", "compose.yaml", ".dockerignore",
 )
 OVERLAY_DIR = "public"                                 # public/<path> -> <path> in the copy
 LEFT_OUT = (                                           # (path, why) - written into PRIVATE-PARTS.md

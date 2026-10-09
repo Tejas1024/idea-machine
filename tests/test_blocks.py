@@ -86,6 +86,61 @@ def test_first_break_after_the_sweep_and_the_block_age_limit():
     assert structure.first_break_after(bars, "5m", "buy", after=t(2)) is None
 
 
+# His 7 Oct 2026 NO to setup 3 of idea #4's picture (8 Nov 2019, Telegram message 1239): "it should have break the wick
+# of the green candle which is right side to the red candle that u considered as break" - the green candle after the
+# red block wicked lower, and price broke only the red candle's own low.
+WICK = [
+    (100.0, 101.0, 99.9, 100.9),    # 0 green
+    (100.9, 101.2, 100.3, 100.4),   # 1 RED: the sell block (its own low 100.3)
+    (100.4, 101.0, 99.8, 100.9),    # 2 GREEN right after it: its wick 0.5 lower (99.8)
+    (100.9, 101.5, 100.7, 101.4),   # 3 green, above 101.2 -> block 1 confirmed here
+    (101.4, 101.45, 100.0, 100.1),  # 4 red: below the red's low, NOT below the green's wick -> no break (his NO)
+    (100.1, 100.6, 99.7, 99.75),    # 5 red: below 99.8 -> THE BREAK
+]
+MIRROR = [(200 - o, 200 - lo, 200 - h, 200 - c) for o, h, lo, c in WICK]   # the same for a buy, upside down
+OUTSIDE = [                         # the candle that goes above the red's high wicks lowest itself: it counts too
+    (100.0, 101.0, 99.95, 100.9),   # 0 green
+    (100.9, 101.2, 100.3, 100.4),   # 1 RED: the sell block
+    (100.4, 101.5, 99.9, 101.4),    # 2 GREEN: down to 99.9 first, then above 101.2 -> confirms block 1
+    (101.4, 101.45, 100.0, 100.05), # 3 red: below 100.3, not below 99.9 -> no break
+    (100.05, 100.5, 99.85, 99.9),   # 4 red: below 99.9 -> THE BREAK
+]
+
+
+def test_the_break_must_pass_the_lowest_wick_from_the_red_block_to_the_candle_above_its_high():
+    for rows, side, level, own, conf, at in ((WICK, "sell", 99.8, 100.3, 3, 5), (MIRROR, "buy", 100.2, 99.7, 3, 5),
+                                             (OUTSIDE, "sell", 99.9, 100.3, 2, 4)):
+        bars = bars_from(rows)
+        b = structure.order_blocks(bars, "5m")
+        blk = b[b.side == side].iloc[0]
+        assert (blk.block_bar, blk.confirmed_bar, round(blk.level, 6)) == (t(1), t(conf), level)
+        assert round(blk.block_low if side == "sell" else blk.block_high, 6) == own   # the block candle is the same
+        br = structure.breaks(bars, "5m")
+        got_br = br[br.side == side]
+        assert got_br["bar"].tolist() == [t(at)] and got_br["block_bar"].tolist() == [t(1)]
+        assert round(float(got_br["level"].iat[0]), 6) == level
+        got = structure.first_break_after(bars, "5m", side, after=t(0))
+        assert (got["bar"], round(got["level"], 6), got["block_bar"]) == (t(at), level, t(1))  # not the candle before
+
+
+@pytest.mark.data
+def test_setup_3_of_idea_4_has_no_break_at_21_15():
+    """The real candles of 8 Nov 2019, India time: the New York high taken at 20:30, the red block at 20:55 (low
+    1464.49), the green at 21:00 (wick 1463.99), the machine's old break at 21:15 (low 1464.29) - no break by 21:20 now
+    (the picture's entry)."""
+    from machine.data import clock
+    from machine.data.bars import load_bars
+
+    def srv(india: str) -> pd.Timestamp:                     # India time -> the MT5 server clock of the bars
+        return clock.utc_to_server(pd.DatetimeIndex([pd.Timestamp(india, tz="Asia/Kolkata").tz_convert("UTC")]))[0]
+    bars = load_bars("5m", "2019-11-08", "2019-11-08")
+    blocks = structure.order_blocks(bars, "5m")
+    red = blocks[(blocks.side == "sell") & (blocks.block_bar == srv("2019-11-08 20:55"))].iloc[0]
+    assert round(red.block_low, 2) == 1464.49 and round(red.level, 2) == 1463.99
+    got = structure.first_break_after(bars, "5m", "sell", after=srv("2019-11-08 20:30"))
+    assert got is None or got["bar"] > srv("2019-11-08 21:20")
+
+
 # ---- fair value gaps --------------------------------------------------------------------------------------------
 
 GAPS = [

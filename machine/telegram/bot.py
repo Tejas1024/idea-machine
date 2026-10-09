@@ -16,7 +16,8 @@ REPLIES to his message saying where it was filed. A message it has filed once is
 Lines TO him: each line of plan/work/telegram-outbox.jsonl ({"id", "text"}, optional "photo", "qid", "idea") whose id
 is not in data/telegram/sent.jsonl yet is sent, then its id is added there. A line with a "qid" is a QUESTION: a reply
 to it is his answer. A LABEL chart's question (qid LBL-..., L15.1): his yes / no / not sure goes to
-plan/work/labels/<word>/replies.jsonl, not the lesson inbox; anything more he writes goes to the inbox as well.
+plan/work/labels/<word>/replies.jsonl, not the lesson inbox; anything more he writes goes to the inbox as well. His own
+way, a plain message with a line of chart numbers ("1.3.7." = his zones, the rest no), answers the newest day's charts.
 STOP pauses these lines (the bot still files everything he types); START sends them again.
 
 The bot's own files (data/telegram/, not in git): state.json (where it is on Telegram, STOP or not), messages.jsonl
@@ -94,7 +95,7 @@ class Bot:
             if uid in self.done:                         # Telegram gave it again after a crash: filed already
                 self._advance(uid)
                 return None
-            r = R.route(msg, self.questions())
+            r = self._label_list(msg, R.route(msg, self.questions()))
             filed, reply = self._file(msg, r)
         except Exception:
             self._keep_failed(uid, update)
@@ -193,6 +194,23 @@ class Bot:
         reply.append(read or "Nothing changes until you say yes to one picture that shows how I read your answer.")
         return {"inbox": inbox.show(path), "answers": answers, "picture": saved}, "\n".join(reply)
 
+    def _label_list(self, msg: R.Message, r: R.Route) -> R.Route:
+        """His own way to answer the label charts (1 Oct 2026, message 915): NOT a reply to a picture, "Below are my
+        zones ... 1.3.7." A plain typed lesson with a line of chart numbers only (labels.replies.listed), or a line
+        saying none is his ("none", "no zones today": none_listed), becomes his answer to the NEWEST day's charts - only
+        while one of them still waits, so later such a line is a lesson again. A photo, an edited message, a command,
+        an idea or a reply keep their own route."""
+        if r.kind != R.LESSON or msg.photo_id or msg.edited or self.where.labels is None:
+            return r
+        from machine.labels import replies as LR
+        if not LR.is_list(msg.words):
+            return r
+        first = LR.newest_waiting(self.where.labels)
+        if first is None:
+            return r
+        return R.Route(R.ANSWER, f"a line of chart numbers, not a reply: his zones among the newest label charts "
+                                 f"({LR.parts(first)[1]})", question={"qid": first, "id": f"label-{first}"})
+
     def _label(self, msg: R.Message, r: R.Route) -> tuple[dict, str]:
         """A reply to a label chart (L15.1). "yes" / "no" / "not sure" (or "1 yes 2 no ...") goes to the label file,
         NOT the lesson inbox - a label is not a lesson. Anything more - a reason, a drawing, words it cannot read as a
@@ -200,12 +218,14 @@ class Bot:
         from machine.labels import replies as LR
         q = r.question or {}
         qid = str(q.get("qid"))
-        got = LR.read(msg.words)
+        mine = LR.is_list(msg.words)                     # his own way: "1.3.7." = his zones, "none", the rest no
+        got = LR.read_all(msg.words, LR.day_numbers(qid, self.where.labels))
+        reply = msg.reply_to_id is not None
         filed: dict = {}
         lines = []
         if got:
             saved = LR.record(self.where.labels, question=qid, got=got, words=msg.words, message_id=msg.message_id,
-                              when=msg.date)
+                              when=msg.date, as_list=bool(mine), reply=reply)
             filed["labels"] = saved["file"]
             lines.append(saved["said"])
         if msg.photo_id or not got or LR.more_than_labels(msg.words):
@@ -213,7 +233,9 @@ class Bot:
             if msg.photo_id:
                 pic = self._photo(msg, f"{qid}-his-answer")
                 notes.append(inbox.picture_note(pic))
-            notes.append(f'his answer to the label chart {qid}: "{_short(msg.reply_to_words)}"')
+            notes.append(f'his answer to the label chart {qid}: "{_short(msg.reply_to_words)}"' if reply else
+                         f"his list of chart numbers, not a reply to a picture: taken for the label charts of "
+                         f"{LR.parts(qid)[1]} (the newest day, one still waiting) - saved in the label file")
             notes.append(_message_note(msg))
             path = inbox.write_inbox(self.where, kind=f"Answer to label chart {qid}", when=msg.date, words=msg.words,
                                      notes=notes)
@@ -287,6 +309,11 @@ class Bot:
             lines += intake.status_lines() or ["No idea yet. Send one: IDEA and your words."]
         except Exception as e:
             lines.append(f"(could not read the ideas: {str(e)[:100]})")
+        try:
+            from machine.live import run as live
+            lines += live.status_lines()
+        except Exception as e:
+            lines.append(f"(could not read the live alerts: {str(e)[:100]})")
         return "\n".join(lines)
 
     def _ideas_ahead(self) -> str:

@@ -4,6 +4,8 @@
     .venv\\Scripts\\python -m machine.labels status       how many labels, charts sent, waiting, his T9 answer
     .venv\\Scripts\\python -m machine.labels catalogue    plan/work/labels/his-drawings.md: all his pictures, read
     .venv\\Scripts\\python -m machine.labels send [--dry-run]         today's 10 charts (only after his T9 opt-in)
+    .venv\\Scripts\\python -m machine.labels next        the next day's charts NOW, if he answered every chart (each
+                                                        intake run does this by itself - his words, 7 Oct 2026)
     .venv\\Scripts\\python -m machine.labels opt-in --answer "opt in" --words "<his words>" --who "<name>"
                                                         T9: his answer, word for word; "opt in" adds the daily task,
                                                         "no" removes it
@@ -24,7 +26,7 @@ def main(argv: list[str] | None = None) -> int:
         pass
     ap = argparse.ArgumentParser(prog="python -m machine.labels", description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("build", "status", "send", "catalogue"):
+    for name in ("build", "status", "send", "next", "catalogue"):
         p = sub.add_parser(name)
         p.add_argument("--word", default=words.STRONG_ZONE.slug, choices=sorted(words.WORDS))
         if name == "send":
@@ -63,6 +65,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         daily.log(a.word, out["said"])
         print(out["said"])
+    elif a.cmd == "next":
+        out = daily.send_next(a.word)
+        daily.log(a.word, f"next (by hand): {out['said']}" + (" + told: L15.2's need reached" if out["told"] else ""))
+        print(out["said"] + ("\ntold him: his labels reached L15.2's need" if out["told"] else ""))
     elif a.cmd == "opt-in":
         path = daily.opt_in(a.answer, a.words, who=a.who)
         print(f"his answer '{a.answer}' added to {path.relative_to(config.ROOT).as_posix()}")

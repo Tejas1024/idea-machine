@@ -435,11 +435,18 @@ def _signals_for(m1: pd.DataFrame) -> list[Signal]:
     return out
 
 
-def test_cut_off_the_future():
+@pytest.mark.parametrize("first_visit", [False, True], ids=["plain", "first_visit_68"])
+def test_cut_off_the_future(first_visit):
     """Run the tester on all bars, and again on the bars up to a cut. Every trade that closed (and every fill) at or
-    before the cut must be the same both ways — the tester never looks past its own minute (lesson B1)."""
+    before the cut must be the same both ways — the tester never looks past its own minute (lesson B1). With
+    first_visit, every limit carries his #68 check (the setup's gaps from an hour before, to one candle after)."""
+    from machine.tester.engine import FIRST_VISIT_SPENT
     m1 = _random_bars()
     signals = _signals_for(m1)
+    if first_visit:
+        signals = [s if s.entry_type != "limit" else Signal(**{
+            **s.model_dump(), "first_visit_from": pd.Timestamp(s.known_at) - pd.Timedelta(hours=1),
+            "first_visit_to": pd.Timestamp(s.known_at) + pd.Timedelta(minutes=5)}) for s in signals]
 
     def rep_on(df):
         last = df.index[-1] + pd.Timedelta(minutes=1)
@@ -459,7 +466,8 @@ def test_cut_off_the_future():
     full = rep_on(m1)
     assert len([t for t in full.trades if t.status == "closed"]) > 60 and full.skipped
     assert {"cancelled", "expired"} <= {why for _, why in full.not_filled}     # every path is exercised
-    cuts = [700, 1500, 2222, 3001, 4000]
+    assert (FIRST_VISIT_SPENT in {why for _, why in full.not_filled}) == first_visit
+    cuts = [700, 1500, 2222, 3001, 4000, 3003, 3004]        # 3003 / 3004: inside a 5-minute candle
     assert_no_future(closed, m1, cuts)
     assert_no_future(fills, m1, cuts)
 
@@ -565,3 +573,84 @@ def test_one_run_is_one_version_of_one_idea():
     with pytest.raises(ValueError, match="ONE version"):
         run([sig(stop=1990, targets=(2010,)), sig(id="s2", version_id="v2", stop=1990, targets=(2010,))], tf="1m",
             m1=mk(flat(2000, 5)), record=False)
+
+
+# ================================================================================================================
+# his #68: the order fills only on price's FIRST visit back into the setup's gaps (first_visit_from / first_visit_to)
+# ================================================================================================================
+
+def _candles(*rows):
+    """5-minute candles from 10:00 as 1-minute bars (5 equal minutes each)."""
+    return mk([r for r in rows for _ in range(5)])
+
+
+SETUP = [(1995, 1996, 1990, 1994),        # 10:00 the grab's candle (the sweep)
+         (1994, 1997, 1993, 1997),        # 10:05
+         (1997, 1999, 1996.5, 1999),      # 10:10 3rd candle of the entry gap 1996-1996.5 (the break): known 10:15
+         (1999, 2002, 1998, 2001),        # 10:15 one candle later: the move's SECOND gap 1997-1998 (his "second fvg")
+         (2001, 2004, 2000.5, 2003)]      # 10:20 a third gap 1999-2000.5 - made after the setup: never counts (Q67 B)
+
+
+def _limit(**kw):
+    return sig(known_at=at(15), entry_type="limit", entry_price=1996.5, stop=1989.9, targets=(2010,), expiry_bars=100,
+               first_visit_from=at(0), first_visit_to=at(20), **kw)
+
+
+def test_a_visit_into_the_second_gap_that_turns_away_spends_the_order():
+    """10:25 comes back into the second gap (low 1997.5), 10:30 turns away (low 1999: out of every gap of the setup -
+    the third gap 1999-2000.5 does not count), 10:35 reaches the entry: a second visit - no trade. Without the check
+    the same order fills at 10:35."""
+    from machine.tester.engine import FIRST_VISIT_SPENT
+    m1 = _candles(*SETUP, (2003, 2003, 1997.5, 2000), (2000, 2003, 1999, 2002), (2002, 2002, 1995, 1996),
+                  *[(1996, 1996.05, 1995.95, 1996)] * 4)
+    rep = play([_limit()], m1)
+    assert rep.trades == [] and rep.not_filled == [("s1", FIRST_VISIT_SPENT)]
+    plain = play([_limit().model_copy(update={"first_visit_from": None, "first_visit_to": None})], m1)
+    assert plain.trades[0].fill_ts == at(35)
+
+
+def test_a_visit_that_goes_on_to_the_entry_fills():
+    """10:25 into the second gap, 10:30 still in it and down to the entry: the first visit - filled at 10:30."""
+    m1 = _candles(*SETUP, (2003, 2003, 1997.5, 1998), (1998, 1998.5, 1996, 1997), *[(1997, 1997.05, 1996.9, 1997)] * 4)
+    t = play([_limit()], m1).trades[0]
+    assert t.fill_ts == at(30) and t.fill_px == 1996.3        # recorded on the bid scale: 1996.5 - the $0.20 spread
+
+
+def test_a_chart_touch_the_spread_kept_from_filling_then_a_turn_away_is_spent():
+    """10:25 the bid touches 1996.45 (the ask stays $0.20 above the entry: no fill), 10:30 turns away, 10:35 the ask
+    reaches it: that is a later visit - spent (one idea #4 buy filled 3 days after such a touch, 7 Oct 2026)."""
+    from machine.tester.engine import FIRST_VISIT_SPENT
+    m1 = _candles(*SETUP, (2003, 2003, 1996.45, 1999), (1999, 2003, 1999, 2002), (2002, 2002, 1995, 1996),
+                  *[(1996, 1996.05, 1995.95, 1996)] * 4)
+    assert play([_limit()], m1).not_filled == [("s1", FIRST_VISIT_SPENT)]
+
+
+def test_the_first_visit_times_are_known_with_the_order_and_left_out_when_unused():
+    with pytest.raises(ValidationError, match="first visit"):
+        sig(first_visit_from=at(0), first_visit_to=at(20), stop=1990, targets=(2010,))          # a next_open
+    with pytest.raises(ValidationError, match="one 5-minute candle"):
+        Signal(**{**_limit().model_dump(), "first_visit_to": at(25)})                # 2 candles after known_at
+    with pytest.raises(ValidationError, match="come together"):
+        Signal(**{**_limit().model_dump(), "first_visit_to": None})
+    plain = sig(known_at=at(15), entry_type="limit", entry_price=1996.5, stop=1989.9, targets=(2010,), expiry_bars=9)
+    assert "first_visit_from" not in plain.model_dump() and "first_visit_to" not in plain.model_dump(mode="json")
+    assert Signal.model_validate(_limit().model_dump(mode="json")) == _limit()
+
+
+@pytest.mark.data
+def test_idea_4_setup_1_is_spent_and_setup_2_fills_on_the_real_candles():
+    """Idea #4's picture (7 Oct 2026): his NO to setup 1 - the buy filled 06:30 India time the next morning; his YES to
+    setup 2. Setup 1's move left a second gap (22:50-23:00 India time, 1345.25-1345.76); price came back into it at
+    00:35-00:40 and turned up without reaching 1345.10 - spent (#68). Setup 2 fills on its first visit, as before.
+    The orders are the compiler's own (version v-b995436713: G8 + #68), written out."""
+    from machine.data.bars import load_bars
+    from machine.tester.engine import FIRST_VISIT_SPENT
+    one = sig(known_at="2016-08-10 20:30", entry_type="limit", entry_price=1345.1, stop=1342.63, targets=(1357.11,),
+              cancel_at=1357.11, expiry_bars=5000, first_visit_from="2016-08-10 18:00", first_visit_to="2016-08-10 20:35")
+    m1 = load_bars("1m", "2016-08-10", "2016-08-12")
+    assert play([one], m1).not_filled == [("s1", FIRST_VISIT_SPENT)]
+    late = play([one.model_copy(update={"first_visit_from": None, "first_visit_to": None})], m1).trades[0]
+    assert str(late.fill_ts) == "2016-08-11 04:02:00"                   # 06:32 India time - the one he said no to
+    two = sig(known_at="2019-02-15 18:25", entry_type="limit", entry_price=1315.69, stop=1314.12, targets=(1319.9,),
+              cancel_at=1319.9, expiry_bars=5000, first_visit_from="2019-02-15 17:00", first_visit_to="2019-02-15 18:25")
+    assert str(play([two], load_bars("1m", "2019-02-15", "2019-02-18")).trades[0].fill_ts) == "2019-02-15 18:40:00"

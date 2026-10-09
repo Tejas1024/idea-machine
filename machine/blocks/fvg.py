@@ -195,3 +195,61 @@ def unfilled_past(bars: pd.DataFrame, i: int, direction: str, hedge: float, rule
     if best is None:
         return None
     return {"lo": best[1], "hi": best[2], "bar": bars.index[best[3]]}
+
+
+# ---- price's FIRST visit back into the setup's gaps (#68, strategy-understanding §65e) ------------------------------
+# His #68: "it's not about the time uh, it's about whether it is already filled or not" - the entry is good only on
+# price's first visit back into the gaps the setup's move left. If price comes back into one of them and turns away
+# without reaching the entry, the setup is spent. His 7 Oct 2026 words on idea #4's setup 1 say the same: "if you would
+# have entered that in the first time only where it has reached the second fvg in that moment if it reached the first
+# fvg that's the good entry" (inbox 2026-10-07-1552-session.md). The old engine's setup_engine.setup_gaps / first_visit
+# (checked on 12 of 12 of his calls, §65e) - here as plain functions, so the tester and the pictures use one rule.
+
+def setup_gaps(h, lo, j_from: int, j_to: int, side: str) -> list[tuple[int, float, float]]:
+    """(3rd candle, lo, hi) of every gap the trade's way whose 3rd candle is j_from ... j_to (positions, both
+    included): the gaps the setup's move left. A buy's: the 1st candle's high below the 3rd's low."""
+    out = []
+    for j in range(max(int(j_from), 2), int(j_to) + 1):
+        if side == "buy" and lo[j] > h[j - 2]:
+            out.append((j, float(h[j - 2]), float(lo[j])))
+        elif side == "sell" and h[j] < lo[j - 2]:
+            out.append((j, float(h[j]), float(lo[j - 2])))
+    return out
+
+
+def _first_true(fn, a: int, b: int) -> int:
+    """The first k in [a, b) where fn(a_, b_) - a bool array for the candles a_ ... b_-1 - is True; -1 if none.
+    Searched in growing chunks: a visit that comes soon never scans the whole window."""
+    size = 64
+    while a < b:
+        q = min(b, a + size)
+        x = fn(a, q)
+        if x.any():
+            return a + int(np.argmax(x))
+        a, size = q, min(size * 4, 1 << 20)
+    return -1
+
+
+def first_visit(h, lo, reach, gaps, k0: int, k1: int, side: str) -> tuple[str, int]:
+    """His #68 on the candles k0 ... k1-1 after the order is made: ("fill", k) - candle k reaches the entry (reach[k],
+    the caller's fill test) on price's first visit back; ("spent", k) - price came back into the setup's gaps and
+    candle k is the first one out of every gap again, the entry not reached (known at k's close); ("open", k1) -
+    neither. "Into" a gap: a buy's low at or below the gap's top (a sell's high at or above its bottom), from the candle
+    after its 3rd. A visit is the run of candles that stay in; a fill anywhere in it is the first visit's."""
+    buy = side == "buy"
+
+    def into(a: int, b: int) -> np.ndarray:
+        ks = np.arange(a, b)
+        x = np.asarray(reach[a:b], dtype=bool).copy()
+        for j, g_lo, g_hi in gaps:
+            x |= (ks > j) & ((lo[a:b] <= g_hi) if buy else (h[a:b] >= g_lo))
+        return x
+
+    f = _first_true(into, k0, k1)
+    if f < 0:
+        return "open", k1
+    g = _first_true(lambda a, b: ~into(a, b), f, k1)
+    r = _first_true(lambda a, b: np.asarray(reach[a:b], dtype=bool), f, k1 if g < 0 else g)
+    if r >= 0:
+        return "fill", r
+    return ("open", k1) if g < 0 else ("spent", g)

@@ -10,7 +10,7 @@ import math
 from typing import Literal
 
 import pandas as pd
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_serializer, model_validator
 
 from machine import costs
 from machine.guards import check_dates
@@ -57,6 +57,14 @@ class Signal(BaseModel):
                  (#119; plan/work/idea-001/steps.md step 6). A buy's is above its entry (the bid high reaches it), a
                  sell's below (the bid low). A cancel and a fill in the same minute: no trade (the order inside the
                  minute is unknown; T3's walk did the same). Only for a limit (L7a).
+    first_visit_from, first_visit_to   his #68 on a limit at a gap (the do-not-enter rule
+                 "price_comes_back_into_another_gap_first"; machine/blocks/fvg.first_visit): the open of the candle
+                 where the setup's grab began, and the close of the last candle whose gaps count. Every 5-minute gap
+                 the trade's way whose 3rd candle is 2 candles after the first ... the last is one of the setup's gaps;
+                 if price comes back into one of them and turns away without reaching the entry, the waiting order is
+                 cancelled (spent). Both are known when the order is made: the last candle closes at most one candle
+                 after it (the old engine's arming candle, L6-differences item 6), and its gap is used only from the
+                 candle after. None = not checked (left out of a dump).
     lots         0.01, 0.02 ... only (LEARNED #116).
     """
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -71,6 +79,8 @@ class Signal(BaseModel):
     levels: Levels = "price"
     expiry_bars: int | None = None
     cancel_at: float | None = None
+    first_visit_from: dt.datetime | None = None
+    first_visit_to: dt.datetime | None = None
     lots: float = 0.01
     idea_id: str
     version_id: str
@@ -80,6 +90,21 @@ class Signal(BaseModel):
     @classmethod
     def _known_at(cls, v):
         return _server_time(v)
+
+    @field_validator("first_visit_from", "first_visit_to", mode="before")
+    @classmethod
+    def _first_visit_times(cls, v):
+        return None if v is None else _server_time(v)
+
+    @model_serializer(mode="wrap")
+    def _dump(self, handler):
+        # the #68 check's times only when set: every signal made without it dumps (and hashes) as before
+        d = handler(self)
+        if isinstance(d, dict):
+            for k in ("first_visit_from", "first_visit_to"):
+                if k in d and d[k] is None:
+                    del d[k]
+        return d
 
     @field_validator("id", "idea_id", "version_id")
     @classmethod
@@ -109,8 +134,17 @@ class Signal(BaseModel):
             if self.expiry_bars is None or self.expiry_bars < 1:
                 raise ValueError("a limit order needs expiry_bars ≥ 1 (the old live orders that never expired: "
                                  "old/CLAUDE-old-phase.md §33e)")
-        elif self.entry_price is not None or self.expiry_bars is not None or self.cancel_at is not None:
-            raise ValueError("a next_open signal takes no entry_price, no expiry_bars and no cancel_at")
+        elif self.entry_price is not None or self.expiry_bars is not None or self.cancel_at is not None \
+                or self.first_visit_from is not None or self.first_visit_to is not None:
+            raise ValueError("a next_open signal takes no entry_price, no expiry_bars, no cancel_at and no first "
+                             "visit check")
+        if (self.first_visit_from is None) != (self.first_visit_to is None):
+            raise ValueError("first_visit_from and first_visit_to come together")
+        if self.first_visit_from is not None:
+            k, a, b = (pd.Timestamp(x) for x in (self.known_at, self.first_visit_from, self.first_visit_to))
+            if not (a < k and a < b <= k + pd.Timedelta(minutes=5)):
+                raise ValueError("first_visit_from must be before known_at and first_visit_to, and first_visit_to at "
+                                 "most one 5-minute candle after known_at")
 
         up = self.direction == "buy"
         if self.cancel_at is not None and ((self.cancel_at <= self.entry_price) if up

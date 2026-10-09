@@ -3,6 +3,7 @@
     .venv\\Scripts\\python -m machine.intake "sell when the asian high is taken ..."   queue the idea, then run
     .venv\\Scripts\\python -m machine.intake "..." --queue-only                        only queue it
     .venv\\Scripts\\python -m machine.intake run                                     everything the machine can do now
+                                         (first: the next zone charts, when he has answered them all - labels_next)
     .venv\\Scripts\\python -m machine.intake status                                  one line per idea (as STATUS)
     .venv\\Scripts\\python -m machine.intake retry idea-002                          a session fixed what it waited for
     .venv\\Scripts\\python -m machine.intake answer idea-002-shown-1 "YES" --source "..."
@@ -16,10 +17,34 @@ from __future__ import annotations
 
 import argparse
 import sys
+import traceback
 
 from machine.intake import state as S
 
 COMMANDS = ("run", "status", "retry", "answer", "send-now", "withdraw")
+
+
+def labels_next() -> None:
+    """His words, 7 Oct 2026: "you can send me that 200 or 600 things that needed me" - the next zone charts as soon as
+    he has answered (machine.labels.daily.send_next). The bot starts this program after each of his answers, so it
+    comes first: before the intake's own lock, never behind a long test. A failure goes to the label log
+    (data/labels/strong_zone/daily.log) and never stops the intake."""
+    from machine import config
+    if not config.LABELS_NEXT_AT_ONCE:
+        return
+    from machine.labels import words
+    word = words.STRONG_ZONE.slug
+    try:
+        from machine.labels import daily
+        out = daily.send_next(word)
+        if out.get("sent") or out.get("told"):
+            daily.log(word, f"next at once: {out['said']}" + (" + told: L15.2's need reached" if out["told"] else ""))
+    except Exception:                                        # noqa: BLE001 - the intake goes on whatever happens here
+        try:
+            from machine.labels import daily
+            daily.log(word, "next at once FAILED:\n" + traceback.format_exc())
+        except Exception:                                    # noqa: BLE001
+            pass
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -60,6 +85,7 @@ def main(argv: list[str] | None = None) -> int:
     n.add_argument("why", help="his words: why the batch goes before its day")
     a = ap.parse_args(argv)
     if a.cmd == "run":
+        labels_next()
         S.run()
     elif a.cmd == "status":
         for x in S.status_lines() or ["no idea yet"]:

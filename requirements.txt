@@ -24,6 +24,9 @@ narwhals==2.24.0
 # Tejas's PC: it only added packages, none changed)
 mcp==2.2.0
 mcp-types==2.2.0
+# MLflow (L16.1): every trial file as one MLflow run, in a local store (machine/host/mlflow_sync.py). Installed 4 Oct 2026
+# on Tejas's PC: it only added 44 packages, none changed
+mlflow==3.16.1
 
 # the tests
 pytest==9.1.1

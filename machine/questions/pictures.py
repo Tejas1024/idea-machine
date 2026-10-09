@@ -29,6 +29,7 @@ import numpy as np
 import pandas as pd
 
 from machine import settings
+from machine.blocks import fvg as FVG
 from machine.charts import draw as D
 from machine.data.clock import to_ist
 from machine.tester.models import Signal
@@ -43,7 +44,8 @@ WHY_ONE = "strategy/learned-inbox/2026-09-29-0912-session.md"
 def entry_candle(s: Signal, m5: pd.DataFrame) -> pd.Timestamp | None:
     """The 5-minute candle where the order is filled (on the chart's bid prices): the next candle for next_open; for a
     limit, the first candle from known_at that reaches the price - None when price reaches cancel_at first (#119),
-    the order runs out, or nothing happens within LOOK_AHEAD candles. Only to END a picture there: no money, no exit."""
+    the setup is spent first (#68: first_visit_from, fvg.first_visit - the tester's rule), the order runs out, or
+    nothing happens within LOOK_AHEAD candles. Only to END a picture there: no money, no exit."""
     j = int(m5.index.searchsorted(pd.Timestamp(s.known_at)))
     if j >= len(m5):
         return None
@@ -58,6 +60,15 @@ def entry_candle(s: Signal, m5: pd.DataFrame) -> pd.Timestamp | None:
     c = int(np.argmax(cancel)) if cancel.any() else None
     if h is None or (c is not None and c <= h):
         return None
+    if s.first_visit_from is not None:
+        H, Lo = m5["high"].to_numpy(), m5["low"].to_numpy()
+        j_from = int(m5.index.searchsorted(pd.Timestamp(s.first_visit_from))) + 2
+        j_to = int(m5.index.searchsorted(pd.Timestamp(s.first_visit_to) - pd.Timedelta(minutes=5), "right")) - 1
+        reach = (H >= s.entry_price) if sell else (Lo <= s.entry_price)
+        what, k = FVG.first_visit(H, Lo, reach, FVG.setup_gaps(H, Lo, j_from, j_to, s.direction), j, j + h + 1,
+                                  s.direction)
+        if what == "spent":
+            return None
     return m5.index[j + h]
 
 
@@ -112,11 +123,11 @@ def _apart(a: pd.Timestamp, b: pd.Timestamp) -> str:
     return f"{round(m / 1440)} days apart"
 
 
-def _kind_words(kind: str, side: str) -> str:
+def _kind_words(kind: str, side: str, session=None) -> str:
     if kind.startswith("equal_"):
         return f"equal {side}s"
-    if kind.startswith("session_"):
-        return f"session {side}"
+    if kind.startswith("session_"):              # its session's own name when the book knows it: "London high" (his
+        return f"{session} {side}" if isinstance(session, str) and session else f"session {side}"   # words, idea #3)
     return kind.replace("_", " ")
 
 
@@ -189,7 +200,7 @@ def items_for(form, sc: Scene, letters: dict[str, str], m5: pd.DataFrame) -> tup
     for lv in levels(form, sc):
         row = lv.row
         price, side = float(row["price"]), str(row["side"])
-        what = _kind_words(str(row["kind"]), side) + ("?" if lv.disputed else "")
+        what = _kind_words(str(row["kind"]), side, row.get("session")) + ("?" if lv.disputed else "")
         jobs = {j for j in lv.jobs.values()}
         if len(jobs) == 1 and set(lv.jobs) == set(trading):
             job = jobs.pop()
@@ -209,14 +220,18 @@ def items_for(form, sc: Scene, letters: dict[str, str], m5: pd.DataFrame) -> tup
             out.append(D.Level(price, " · ".join(x for x in (f"{tf}{what}", job) if x), color=color))
             if lv.disputed:
                 disputed.append(f"the {tf}{what}")
-    gaps = {}
+    gaps, second = {}, set()
     for r in trading:
         f = next((sc.facts[r].get(s.id) for s in form.steps if {"lo", "hi", "first_bar"} <= set(sc.facts[r].get(s.id)
                                                                                                 or {})), None)
         if f:
-            gaps.setdefault((pd.Timestamp(f["first_bar"]), float(f["lo"]), float(f["hi"])), []).append(r)
+            key = (pd.Timestamp(f["first_bar"]), float(f["lo"]), float(f["hi"]))
+            gaps.setdefault(key, []).append(r)
+            if f.get("gap_rank") == 1:                   # the move's second gap (L19b, his #124): named so
+                second.add(key)
     for (start, lo, hi), rs in gaps.items():
-        name = "gap" if len(gaps) == 1 else f"{'/'.join(letters[r] for r in rs)} gap"
+        word = "second gap" if (start, lo, hi) in second else "gap"
+        name = word if len(gaps) == 1 else f"{'/'.join(letters[r] for r in rs)} {word}"
         out.append(D.Box(start, sc.end, lo, hi, name=name))
         times.append(start)
     at = (form.entry.at or "").split(".")[0] if form.entry.how == "limit" else ""

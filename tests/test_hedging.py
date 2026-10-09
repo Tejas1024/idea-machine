@@ -502,8 +502,9 @@ def test_every_row_of_his_management_table_is_listed():
 
 
 def test_a_management_version_it_cannot_run_is_refused_not_run_as_something_else():
-    with settings.using({"which_leg_may_close_while_covered": "profit"}):
-        with pytest.raises(NotImplementedError, match="L19c"):
+    # 'any' (no 1:4 rule) was never his and is not built; #105 'profit' runs since L19c (a labelled comparison)
+    with settings.using({"which_leg_may_close_while_covered": "any"}):
+        with pytest.raises(NotImplementedError, match="management.py"):
             hedging.Rules.now()
 
 

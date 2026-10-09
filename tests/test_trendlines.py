@@ -14,7 +14,7 @@ from machine.blocks import patterns as PT
 from machine.blocks import trendlines as TL
 from machine.ideas import compile as C
 from machine.ideas.form import Idea
-from tests.block_fakes import START, bars_from, random_bars
+from tests.block_fakes import START, bars_from, fake_market, random_bars
 from tests.test_ideas import fake_m1, type1
 
 M5 = pd.Timedelta(minutes=5)
@@ -350,7 +350,7 @@ def m1():
 
 @pytest.fixture(scope="module")
 def market(m1):
-    return C.Market.from_m1(m1)
+    return fake_market(m1)
 
 
 def touch_form(**kw) -> dict:
@@ -491,7 +491,7 @@ def test_compiled_signals_with_the_new_steps_do_not_peek(m1):
     ideas = [Idea.load(d) for d in forms]
 
     def signals_of(bars):
-        mk = C.Market.from_m1(bars)
+        mk = fake_market(bars)
         rows = [{"form": i.id, **s.model_dump(include={"known_at", "direction", "entry_price", "stop", "targets"})}
                 for i in ideas for s in C.compile_idea(i, mk).signals]
         return pd.DataFrame(rows, columns=["form", "known_at", "direction", "entry_price", "stop", "targets"])

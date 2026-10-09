@@ -47,7 +47,7 @@ from typing import Any, Callable, Protocol
 
 from machine import config
 from machine.ideas import store
-from machine.ideas.form import LOCKED_FROM, STATES, Slice, open_parts
+from machine.ideas.form import LOCKED_FROM, SLICE_DIMENSIONS, STATES, Slice, open_parts
 from machine.mcp import tools as T
 from machine.mcp import versions as V
 from machine.mcp.versions import Refused
@@ -77,6 +77,12 @@ class NoAnswer(ResearchError):
     """The planning call got no usable answer (his plan's usage limit, no network): try again later."""
 
 
+class PlanRefused(ResearchError):
+    """Code refused Claude's plan, and its fix-up too. Nothing was saved or counted, and no money was seen, so a NEW
+    planning call may write a plan code accepts: the intake asks again at its next run before a session looks
+    (L10b, the 8 Oct rehearsal: idea #3's slices were named with sentences twice)."""
+
+
 @dataclass
 class Planned:
     """One planning call's answer."""
@@ -97,6 +103,7 @@ class Outcome:
     final: str | None = None
     answer: str | None = None
     plan_sha: str | None = None
+    again: bool = False    # "needs a session" only because code refused the plan: a new planning call may pass
 
 
 # ================================================================================================= files
@@ -213,6 +220,18 @@ PLAN_SCHEMA: dict = {
     },
     "required": ["hypothesis", "versions", "slices", "stop_rule", "unclear"],
 }
+
+
+def plan_schema() -> dict:
+    """PLAN_SCHEMA with a slice's name and dimension held to the real ones, so Claude's answer cannot name a slice
+    with a sentence. Seen in the 8 Oct rehearsal (L10b): idea #3's plan named its slices 'The session the sell is
+    entered in' ... - code refused it twice and a session had to look. Idea #2's plan used the short names."""
+    from machine.learner import conditions
+    schema = json.loads(json.dumps(PLAN_SCHEMA))
+    props = schema["properties"]["slices"]["items"]["properties"]
+    props["name"] = {"type": "string", "enum": sorted(conditions.BY_NAME)}
+    props["dimension"] = {"type": "string", "enum": list(SLICE_DIMENSIONS)}
+    return schema
 
 
 def _value(v: Any) -> Any:
@@ -333,17 +352,22 @@ def check_plan(idea: str, raw: dict) -> tuple[dict, list[str]]:
     names: set[str] = set()
     for s in new:
         n = str(s.get("name"))
+        cond = conditions.BY_NAME.get(n)
+        if cond is None:                                   # said so that the fix-up call can fix it (the rehearsal)
+            same = [c.name for c in conditions.ALL if c.dimension == s.get("dimension")]
+            problems.append(f"slice {n!r}: not a condition the learner measures (list_blocks' slice_conditions). Its "
+                            "\"name\" must be EXACTLY one of the short names there - the word before the colon, like "
+                            "session, dial, adr_zone"
+                            + (f"; with the dimension {s.get('dimension')!r}: {', '.join(same)}" if same else "")
+                            + ". Your own words go into \"how\" and \"why\"")
+            continue
+        if s.get("dimension") != cond.dimension:
+            problems.append(f"slice {n!r}: its dimension is {cond.dimension!r}, not {s.get('dimension')!r}")
+            continue
         try:
             Slice.model_validate(s)
         except Exception as err:                           # noqa: BLE001 - a pydantic error, said in words
             problems.append(f"slice {n!r}: {err}")
-            continue
-        cond = conditions.BY_NAME.get(n)
-        if cond is None:
-            problems.append(f"slice {n!r}: not a condition the learner measures (list_blocks' slice_conditions)")
-            continue
-        if s.get("dimension") != cond.dimension:
-            problems.append(f"slice {n!r}: its dimension is {cond.dimension!r}, not {s.get('dimension')!r}")
             continue
         if n in names:
             problems.append(f"slice {n!r} is chosen twice")
@@ -392,8 +416,11 @@ The plan:
   - readings: one reading for EVERY "version" part of get_idea's "unclear" (part id + reading id).
   - changes: ONLY dimension 1 (the timeframe: "timeframe", "steps.<id>.tf") or dimension 10 (the idea's own numbers:
     "steps.<id>.max_wait_bars", "entry.max_wait_bars", "steps.<id>.params.<name>", "do_not_enter.<n>.params.<name>",
-    "exit.beyond_usd", "targets.<n>.ratio", "settings.<name>" of a number the machine chose). Never his fixed rules,
-    never a direction, a filter or a session (those are slices), never what the idea IS (its blocks, its entry).
+    "exit.beyond_usd", "targets.<n>.ratio", "settings.<name>" of a number the machine chose) - and, for an idea that
+    hedges, his management's TEST rows ("exit.management.<name>", list_blocks "management_a_version_may_change"; such
+    a version is judged WITH HIS HEDGE, beside version 1 of his management). Never his fixed rules (his fixed
+    management too: list_blocks "his_fixed_management"), never a direction, a filter or a session (those are
+    slices), never what the idea IS (its blocks, its entry).
   - Version 1 = the idea as written: the reading his words fit best (usually "A"), no change.
   - Then the readings his words leave open, then a few numbers near what his words or documents say. Order them most
     important first.
@@ -402,6 +429,11 @@ The plan:
 - slices: at most the number the message gives, chosen NOW, before any money - only these can later become "works
   best in / fails in". Conditions from slice_conditions, each with ITS dimension. Choose those his words or documents
   say matter for this idea (the session, news, the trend, the place ...). Fewer is fine.
+  - "name" is the condition's SHORT NAME exactly as slice_conditions gives it - the word before the colon, like
+    session, news_near, dial, adr_zone. Never a sentence of your own. "dimension" is the word in its square brackets.
+    Your easy-English words go into "how" (its parts) and "why" (his words or documents that say it matters).
+- A timeframe change ("timeframe", "steps.<id>.tf"): only a chart that EVERY step's block lists under "charts" in
+  list_blocks' blocks. A block that says "charts 5m" works on the 5-minute chart only.
 - stop_rule: one or two sentences in easy English: when this research stops. Code's rule is fixed - say it for this
   idea in your words:
 {stop}
@@ -431,7 +463,7 @@ def planner_user(idea: str, refused: list[str] | None = None, previous: dict | N
 def claude_planner(idea: str, *, refused: list[str] | None = None, previous: dict | None = None) -> Planned:
     """One planning call: Claude Code with the planning tools only (machine/talker/llm.agent_call)."""
     from machine.talker import llm
-    a = llm.agent_call(system=planner_system(), user=planner_user(idea, refused, previous), schema=PLAN_SCHEMA,
+    a = llm.agent_call(system=planner_system(), user=planner_user(idea, refused, previous), schema=plan_schema(),
                        servers={"research": planning_server()},
                        allowed=tuple(f"mcp__research__{t}" for t in T.PLAN_TOOLS), model=config.RESEARCH_MODEL,
                        effort=config.RESEARCH_EFFORT, timeout=config.RESEARCH_PLAN_SECONDS)
@@ -503,7 +535,7 @@ def make_plan(idea: str, *, planner: Planner | None = None, say: Callable = prin
         plan, problems = check_plan(idea, got.raw)
     if problems:
         log(idea, "code refused the plan again - nothing runs", "\n".join(f"- {p}" for p in problems))
-        raise ResearchError(f"code refused {idea}'s plan {fixups + 1} times: " + "; ".join(problems)[:600])
+        raise PlanRefused(f"code refused {idea}'s plan {fixups + 1} times: " + "; ".join(problems)[:600])
     state = store.read_state(idea)["state"]
     plan.update(made_at=_now(), state_when_made=state, form_meaning=now, money_seen_before=[],
                 made_by={"agent": WHO, "calls": calls, "fixups": fixups}, raw=got.raw)
@@ -656,6 +688,8 @@ def _run(idea: str, *, planner, bench, send: bool, tell: bool, say: Callable) ->
         plan = make_plan(idea, planner=planner, say=say)
     except NoAnswer as err:
         return Outcome(idea, "no answer", str(err))
+    except PlanRefused as err:
+        return Outcome(idea, "needs a session", str(err), again=True)
     except ResearchError as err:
         return Outcome(idea, "needs a session", str(err))
     sha = plan["sha256"]
@@ -740,7 +774,9 @@ def _numbers_line(n: dict) -> str:
 
 def every_version(idea: str) -> list[dict]:
     """Every version of the idea's family with a tester trial file (plan/work/trials/): its numbers on 2016-2020 (the
-    years every version may show - never the check years here), and the referee's choice."""
+    years every version may show - never the check years here), and the referee's choice. A version that changes his
+    management has a hedging trial file instead (L19c): its numbers WITH HIS HEDGE, and version 1 of his management on
+    the same setups ("hedged"). The 8 Oct rehearsal on made-up prices (L10b, 4 Oct) found them listed as "did not run"."""
     form = store.load_form(idea)
     files = trials.load()
     parent, _ = V.parent_of(idea, form, files)
@@ -748,7 +784,7 @@ def every_version(idea: str) -> list[dict]:
     members = set(fam["ideas"])
     last: dict[tuple[str, str], dict] = {}
     for f in files:
-        if f.get("kind") == "tester" and f.get("idea_id") in members:
+        if f.get("kind") in ("tester", T.MG_KIND) and f.get("idea_id") in members:
             last[(f["idea_id"], f["version_id"])] = f
     chosen = {(f["idea_id"], (f.get("result") or {}).get("chosen")) for f in files
               if f.get("kind") == "referee-tune" and f.get("idea_id") in members}
@@ -756,10 +792,27 @@ def every_version(idea: str) -> list[dict]:
     out = []
     for (i, vid), f in last.items():
         r = f.get("result") or {}
-        out.append({"idea": i, "version": vid, "about": about.get(vid, ""), "trades": r.get("trades"),
-                    "per_trade": r.get("net_inr_per_trade"), "total": r.get("net_inr_total"),
-                    "worst_year": r.get("worst_year"), "chosen": (i, vid) in chosen, "trial": f.get("trial_id")})
+        row = {"idea": i, "version": vid, "about": about.get(vid, ""), "trades": r.get("trades"),
+               "per_trade": r.get("net_inr_per_trade"), "total": r.get("net_inr_total"),
+               "worst_year": r.get("worst_year"), "chosen": (i, vid) in chosen, "trial": f.get("trial_id")}
+        if f["kind"] == T.MG_KIND:
+            v1 = r.get("version_1_of_his_management") or {}
+            row["hedged"] = {"open_at_end": r.get("open_at_end") or 0, "version_1_trades": v1.get("trades"),
+                             "version_1_total": v1.get("net_inr_total")}
+        out.append(row)
     return out
+
+
+def _version_line(r: dict) -> str:
+    worst = (f", worst year {r['worst_year']['year']} {_inr(r['worst_year']['net_inr'])}" if r.get("worst_year")
+             else "")
+    h = r.get("hedged")
+    if h is None:
+        return f"{r['trades'] or 0} trades, {_inr(r['per_trade'])} a trade, total {_inr(r['total'])}{worst}"
+    still = f" ({h['open_at_end']} still open at the end, not counted)" if h["open_at_end"] else ""
+    return (f"with your hedge: {r['trades'] or 0} trades closed{still}, {_inr(r['per_trade'])} a trade, total "
+            f"{_inr(r['total'])}{worst} · your management as it is, on the same setups: "
+            f"{h['version_1_trades'] or 0} trades closed, total {_inr(h['version_1_total'])}")
 
 
 def versions_text(idea: str, plan: dict, *, short: bool = False) -> str:
@@ -774,13 +827,10 @@ def versions_text(idea: str, plan: dict, *, short: bool = False) -> str:
     for r in mine:
         v = order[r["version"]]
         name = v["name"] if short else f"{v['name']} - {v['about']}"
-        lines.append(f"{v['k']}. {name}: {r['trades'] or 0} trades, {_inr(r['per_trade'])} a trade, total "
-                     f"{_inr(r['total'])}" + (f", worst year {r['worst_year']['year']} "
-                                              f"{_inr(r['worst_year']['net_inr'])}" if r.get("worst_year") else "")
-                     + (" - CHOSEN by the referee" if r["chosen"] else ""))
+        lines.append(f"{v['k']}. {name}: {_version_line(r)}" + (" - CHOSEN by the referee" if r["chosen"] else ""))
     for r in others:
-        lines.append(f"- {r['idea']} {r['version']} (tried before this plan): {r['trades'] or 0} trades, "
-                     f"{_inr(r['per_trade'])} a trade" + (" - chosen by the referee" if r["chosen"] else ""))
+        lines.append(f"- {r['idea']} {r['version']} (tried before this plan): {_version_line(r)}"
+                     + (" - chosen by the referee" if r["chosen"] else ""))
     planned = {v["version_id"] for v in plan["versions"]}
     missing = [v for v in plan["versions"] if v["version_id"] not in {r["version"] for r in mine}]
     for v in missing:

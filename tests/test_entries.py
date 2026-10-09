@@ -18,6 +18,7 @@ from machine.tester.engine import CHECK_BEFORE_FILL, MINUTE_NS
 from machine.tester.models import Signal
 from tests.test_hedging import Market as HandMarket
 from tests.test_hedging import at, order, path
+from tests.block_fakes import fake_market
 from tests.test_ideas import fake_m1, type1
 
 
@@ -28,7 +29,7 @@ def m1():
 
 @pytest.fixture(scope="module")
 def market(m1):
-    return C.Market.from_m1(m1)
+    return fake_market(m1)
 
 
 def ns(t) -> int:
@@ -293,7 +294,7 @@ def test_second_gap_signals_do_not_peek(m1):
 
     def signals_of(bars):
         rows = [s.model_dump(include={"known_at", "direction", "entry_price", "stop", "targets"})
-                for s in C.compile_idea(idea, C.Market.from_m1(bars)).signals]
+                for s in C.compile_idea(idea, fake_market(bars)).signals]
         return pd.DataFrame(rows, columns=["known_at", "direction", "entry_price", "stop", "targets"])
 
     n = len(m1)

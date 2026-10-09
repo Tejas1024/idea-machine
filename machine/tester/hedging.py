@@ -57,6 +57,28 @@ How a trade runs (each step has a test in tests/test_hedging.py):
   - No timeout and no floor (M19, M20). A trade still open at the window end is reported apart, never counted in Rs.
   - Money: every leg is one position at Rs 40 all-in (M36, #54, #115), through machine.costs.pnl. A trade counts in
     the year its last leg closed.
+
+His TEST rows (L19c, machine/tester/management.py) - each a setting whose first value is version 1, the steps above:
+  M02 a_real_stop_instead_of_the_hedge   never · when_small (the hedge distance at entry <= a_small_hedge_is_within_adr
+       of a day's range) · always: the hedge price is a REAL STOP - the leg closes there and the trade ends. No room,
+       no zone hedge; at news it closes in profit, else nothing (the stop protects).
+  M09 on_a_friday                        a trade filled on a Friday (server time): as any day · room · no room (hedge).
+  M21 how_many_covers_allowed            None · N: after N hedges the hedge price is a real stop (the next hedge does
+       not open: the leg closes there). At news, a leg not in profit is left as it is.
+  M22 close_the_losing_leg_when_a_trend_runs   while hedged, a setup of his INSIDE the 1:4 zone closes the leg it points
+       against when the hour AND the day are both the setup's way and a trendline of his runs that way (step 5 after).
+  M24 trail_when_hour_and_day_split      first_target · hold (trail as if with).
+  M28 news_events / news_minutes_before  red + orange · red only; the minutes before.
+  M30 double_profit_reentry              off · retest · break · setup: a zone of rank >= double_profit_zone_rank between
+       the entry and the target at the fill is booked at (the leg closes at its near edge while one leg is open and
+       no hedge has opened), then back in once - the same direction, the same target and hedge price; the wait ends
+       with no re-entry if price reaches the target or the hedge price first.
+  M31 strong_zone_as_hedge_point         off · nearer · zone · zone_break: the FIRST hedge at a strong zone below a buy
+       (above a sell) - its near edge if nearer than the hedge point / its near edge / its far edge (the zone grid, M33).
+  M32 in_a_zone_against_you              off · small: an hour-chart zone between the entry and the target -> the
+       target is that zone's near edge.
+  M11 (his, fixed) which_leg_may_close_while_covered = profit (#105) runs as a LABELLED comparison only: the leg the
+       setup points against closes only if it is in profit after its Rs 40.
 """
 from __future__ import annotations
 
@@ -80,22 +102,25 @@ TABLE = "plan/work/management-decisions.md"
 # Every row of his table (T12): (row, what this file does, his lessons). "waits for" = a block not built yet.
 RULES: tuple[tuple[str, str, str], ...] = (
     ("M01", "built: no stop; the hedge is the protection", "#9, #17; strategy.md 11"),
-    ("M02", "a version, not here: the plain stop is the other arm of the 2x2 (B3-11)", "#17"),
+    ("M02", "a version (L19c): a_real_stop_instead_of_the_hedge never / when_small / always (B3-11); the plain stop "
+            "of every trade is also the other arm of the 2x2", "#17"),
     ("M03", "built: the hedge point = the signal's hedge point (the grab's extreme)", "#9, #33, #111"),
-    ("M04", "a test, off (parked: 'we will backtest it later')", "#112"),
+    ("M04", "waits for B2-03 'very strong' (it acts only on an order at a later gap): machine/tester/management.py",
+     "#112, #115"),
     ("M05", "built: 0.01 lot on every leg", "strategy.md 11; #116"),
     ("M06", "built: the hour AND the day with the trade -> the hedge waits at the next liquidity. 'Setup good' "
             "(B2-04, open) = any valid entry of his: every signal here is one (reading A; for idea #1 reading B "
             "is the same; C = a version for L19c)", "#111; strategy.md 11"),
-    ("M07", "built: no liquidity there -> how_much_room days of range (Claude's 1.0, a test)", "-"),
+    ("M07", "built: no liquidity there -> how_much_room days of range (Claude's 1.0, a version, B3-26)", "-"),
     ("M08", "not built: a buy at the all-time high is only counted, not given the room to the next strong zone (the "
             "zones exist since L6b.2; the zone break entry carries its own all-time-high hedge, #97)",
      "strategy.md 12; #97"),
-    ("M09", "a test, off (the Friday part)", "#17"),
+    ("M09", "a version (L19c): on_a_friday as_any_day / room / hedge (B3-13; 'skip' = a weekday slice)", "#17"),
     ("M10", "built (L19b): any of his entries closes a leg - grab + gap, zone entry, zone break (machine/entries); the "
             "trendline touch and the triangle false break join the day their open words are set (B2-01 'steep', "
             "B2-02 'big move': his answer, or a version that names the number)", "#47, #113"),
-    ("M11", "built: the leg the setup points against closes, even at a loss", "#134"),
+    ("M11", "built: the leg the setup points against closes, even at a loss (#105 'profit': a labelled comparison)",
+     "#134"),
     ("M12", "built: only 4 x R past that leg's current entry, after every hedge", "#107, #108, #111, #134"),
     ("M13", "built: only a full sweep -> break -> gap setup closes (his setups)", "#95, #47"),
     ("M14", "built: once hedged, the target is gone", "#51"),
@@ -105,27 +130,30 @@ RULES: tuple[tuple[str, str, str], ...] = (
     ("M18", "built: one trade at a time; a new setup while a trade is on is skipped", "#55"),
     ("M19", "built: no timeout", "#19, #20, #104"),
     ("M20", "built: no floor", "#53"),
-    ("M21", "a test: no cap here (the old cap of 4 only fed the escape, which is off)", "strategy.md 11"),
-    ("M22", "a test, off (trend escape)", "#19, #51"),
+    ("M21", "a version (L19c): how_many_covers_allowed None (no cap) / 1-10: at the cap the hedge price is a stop "
+            "(B3-12)", "strategy.md 11"),
+    ("M22", "a version (L19c): the trend escape, off / on (B3-14)", "#19, #51"),
     ("M23", "built: trailing only when not hedged, by the hour AND the day", "#82, #133"),
-    ("M24", "built: hour and day split -> the first target (Claude's, a test)", "-"),
+    ("M24", "built: hour and day split -> the first target (Claude's); a version (L19c): 'hold'", "-"),
     ("M25", "built: the target moves to the next liquidity while trailing", "#20"),
     ("M26", "built: every close is the whole leg", "strategy.md 10"),
     ("M27", "built (L19b): on a trendline touch entry the first hedge moves with the line - only tighter, only before "
             "the first hedge, never onto a price the market is already past; such a trade gets no room (M06): #69 is "
             "the day AND the hour bullish and still 'keep the hedging below the trend line itself ... trailing'",
      "#69; strategy.md section 9"),
-    ("M28", "built: news in profit -> close; break-even or a loss -> hedge. Forex Factory red + orange; "
-            "news_minutes_before = Claude's 15 (a test)", "#110, #17; T7"),
-    ("M29", "Box 2 (B2-05 'halfway'), off", "strategy.md 1"),
-    ("M30", "a test, off (book at a zone, double profit)", "strategy.md 3, 10"),
-    ("M31", "a test, off (a strong zone as the hedge point)", "strategy.md 3"),
-    ("M32", "a test, off (a zone against you)", "strategy.md 6"),
-    ("M33", "a test (zone grid vs gap grid): gap grid only", "strategy.md 11"),
-    ("M34", "a test, off (close one side early)", "legacy EA"),
-    ("M35", "Claude's numbers, settings: next_liquidity_max_adr 2.5, trail_max_targets 6", "-"),
+    ("M28", "built: news in profit -> close; break-even or a loss -> hedge. Forex Factory red + orange; versions "
+            "(L19c): red only (B3-29), news_minutes_before (Claude's 15, B3-22)", "#110, #17; T7, #142"),
+    ("M29", "waits for B2-05 'halfway' (his answer), off", "strategy.md 1"),
+    ("M30", "a version (L19c): double_profit_reentry off / retest / break / setup (B3-09)", "strategy.md 3, 10"),
+    ("M31", "a version (L19c): strong_zone_as_hedge_point off / nearer / zone / zone_break", "strategy.md 3"),
+    ("M32", "a version (L19c): in_a_zone_against_you off / small (B3-04; 'avoid' = a place slice)", "strategy.md 6"),
+    ("M33", "the zone grid's hedge = strong_zone_as_hedge_point 'zone_break' (L19c); closing at the next zone is "
+            "replaced by M10", "strategy.md 11"),
+    ("M34", "not a version: a close at a nearer level on its own breaks M10 (#47, #113)", "legacy EA"),
+    ("M35", "Claude's numbers, versions (L19c): next_liquidity_max_adr 2.5, trail_max_targets 6 (B3-26)", "-"),
     ("M36", "built: Rs 40 per position, all-in, no swap", "#54, #115"),
-    ("M37", "a test (prediction + probability)", "strategy.md 8"),
+    ("M37", "the research loop: an entry version x a management version (L19c makes it possible; L19d runs it)",
+     "strategy.md 8"),
     ("M38", "L20 (money plan), not here: 0.01 lot every leg", "#115, #116"),
     ("M39", "built: a waiting limit order is cancelled by a newer setup", "inbox 2026-09-28-0203"),
 )
@@ -149,16 +177,31 @@ class Rules:
     news_lead_min: int      # M28 news_minutes_before (Claude's 15)
     lot: float              # M05 lot_size
     follow: str = "line"    # M27 the_cover_follows_the_trendline ("line" his, "off")
+    # ---- his TEST rows (L19c): the defaults are version 1 = what this file did before L19c ----
+    news_events: str = "forex_factory_red_and_orange"   # M28 news_events (red + orange; "forex_factory_red")
+    protection: str = "never"      # M02 a_real_stop_instead_of_the_hedge (never / when_small / always)
+    small_adr: float = 0.10        # M02 a_small_hedge_is_within_adr (Claude's)
+    friday: str = "as_any_day"     # M09 on_a_friday (as_any_day / room / hedge)
+    max_covers: int | None = None  # M21 how_many_covers_allowed (None = no cap)
+    escape: bool = False           # M22 close_the_losing_leg_when_a_trend_runs
+    split: str = "first_target"    # M24 trail_when_hour_and_day_split (first_target / hold)
+    dbl: str = "off"               # M30 double_profit_reentry (off / retest / break / setup)
+    dbl_rank: int = 2              # M30 double_profit_zone_rank
+    zone_hedge: str = "off"        # M31 strong_zone_as_hedge_point (off / nearer / zone / zone_break)
+    zone_hedge_adr: float = 1.5    # M31 strong_zone_hedge_max_adr
+    zone_hedge_rank: int = 2       # M31 strong_zone_hedge_rank
+    zone_against: str = "off"      # M32 in_a_zone_against_you (off / small)
+    zone_against_rank: int = 2     # M32: the hour chart (settings zone_hour_chart_rank, his "1h stronger")
+    which_close: str = "any_rr"    # M11 which_leg_may_close_while_covered (#134; "profit" = #105, a comparison)
 
     @classmethod
     def now(cls) -> "Rules":
-        """Today's settings (or the active `settings.using(...)` version's). A value this file cannot run yet is
-        refused with the prompt that builds it - never run as something else."""
+        """Today's settings (or the active `settings.using(...)` version's). A value this file cannot run is refused
+        with the reason - never run as something else."""
         g = settings.get
         need = {
-            "which_leg_may_close_while_covered": ("any_rr",),      # M11 #134 (the #105 'profit' reading: L19c)
+            "which_leg_may_close_while_covered": ("any_rr", "profit"),   # M11 #134; #105 'profit' = a comparison
             "where_profit_is_measured_from": ("current",),          # M12 #134 (the same rule as any_rr)
-            "close_the_losing_leg_when_a_trend_runs": (False,),     # M22 escape: L19c
             "the_target_moves": (True,),                            # M25
             "give_it_room_before_covering": ("hd", "off"),
             "trail_the_target": ("hd", "off"),
@@ -166,11 +209,8 @@ class Rules:
             "what_the_leg_left_over_aims_at_after_a_cover": ("his124", "setup"),
             "what_news_does": ("profit_close", "off"),
             "which_entries_can_close_a_position": ("his5", "type1"),
-            "halfway_reversal": ("off",),
-            "double_profit_reentry": ("off",),
-            "close_one_side_early": (False,),
-            "strong_zone_as_hedge_point": ("off",),
-            "in_a_zone_against_you": ("off",),
+            "halfway_reversal": ("off",),                           # M29: waits for his word 'halfway' (B2-05)
+            "close_one_side_early": (False,),                       # M34: would break M10
             "floor": ("off",),
             "no_timeout": (0,),
             "the_cover_follows_the_trendline": ("line", "off"),     # M27
@@ -178,15 +218,26 @@ class Rules:
         for name, ok in need.items():
             if g(name) not in ok:
                 raise NotImplementedError(f"the hedging tester runs {name} = {' / '.join(map(repr, ok))} only; "
-                                          f"{g(name)!r} is a version for L19c ({TABLE})")
+                                          f"{g(name)!r} is not built ({TABLE}; machine/tester/management.py)")
         lot = float(g("lot_size"))
         if costs.lot_steps(lot) != 1:
             raise NotImplementedError("the hedging tester runs 0.01 lot per leg (M05); lot sizes are L20")
+        cap = g("how_many_covers_allowed")
         return cls(float(g("how_far_before_any_leg_may_close")), g("give_it_room_before_covering"),
                    float(g("how_much_room")), float(g("next_liquidity_max_adr")), g("trail_the_target"),
                    int(g("trail_max_targets")), g("does_the_whole_trade_decide_a_close"),
                    g("what_the_leg_left_over_aims_at_after_a_cover"), g("what_news_does"),
-                   int(g("news_minutes_before")), lot, g("the_cover_follows_the_trendline"))
+                   int(g("news_minutes_before")), lot, g("the_cover_follows_the_trendline"),
+                   news_events=g("news_events"), protection=g("a_real_stop_instead_of_the_hedge"),
+                   small_adr=float(g("a_small_hedge_is_within_adr")), friday=g("on_a_friday"),
+                   max_covers=None if cap is None else int(cap),
+                   escape=bool(g("close_the_losing_leg_when_a_trend_runs")),
+                   split=g("trail_when_hour_and_day_split"), dbl=g("double_profit_reentry"),
+                   dbl_rank=int(g("double_profit_zone_rank")), zone_hedge=g("strong_zone_as_hedge_point"),
+                   zone_hedge_adr=float(g("strong_zone_hedge_max_adr")),
+                   zone_hedge_rank=int(g("strong_zone_hedge_rank")), zone_against=g("in_a_zone_against_you"),
+                   zone_against_rank=int(g("zone_hour_chart_rank")),
+                   which_close=g("which_leg_may_close_while_covered"))
 
     def as_dict(self) -> dict:
         return dict(self.__dict__)
@@ -220,6 +271,10 @@ class Facts(Protocol):
     def next_level(self, side: str, beyond: float, t: pd.Timestamp, max_away: float | None) -> float | None: ...
     def ruler(self, t: pd.Timestamp) -> float: ...
     def at_all_time_high(self, t: pd.Timestamp) -> bool: ...
+    # asked only by his TEST rows (L19c), only when their setting is on:
+    #   zone_in_path(direction, t, entry, target, min_rank) -> {"book_at", "far", ...} | None     M30, M32
+    #   zone_edge(side, t, price, max_away, min_rank) -> {"price" (near edge), "far", ...} | None  M31
+    #   trend_line(direction, t) -> bool: a trendline of his on the 5-minute chart runs that way  M22
 
 
 def setups_from(signals: list[Signal], book: engine._Bars, cancel_by: dict[str, int] | None = None) -> list[Setup]:
@@ -238,16 +293,20 @@ def setups_from(signals: list[Signal], book: engine._Bars, cancel_by: dict[str, 
     return sorted(out, key=lambda x: (x.fill_i, x.known, x.id))
 
 
-def news_moments(first: pd.Timestamp, last: pd.Timestamp, lead_min: int) -> np.ndarray:
-    """His news (Forex Factory red + orange, T7; settings news_events) between first and last, server time, as
-    [act at = release - lead_min, release] in ns. Only rows with an exact time; a release not known in advance (the
-    L12 calendar's unscheduled rows: the Fed's emergency moves in March 2020) is left out."""
+NEWS_COLOURS = {"forex_factory_red_and_orange": ("red", "orange"), "forex_factory_red": ("red",)}
+
+
+def news_moments(first: pd.Timestamp, last: pd.Timestamp, lead_min: int, events: str | None = None) -> np.ndarray:
+    """His news (Forex Factory red + orange, T7; settings news_events - red only is a version, #142) between first
+    and last, server time, as [act at = release - lead_min, release] in ns. Only rows with an exact time; a release
+    not known in advance (the L12 calendar's unscheduled rows: the Fed's emergency moves in March 2020) is left out."""
     from machine.data import clock
     from machine.news import forexfactory as FF
-    if settings.get("news_events") != "forex_factory_red_and_orange":
-        raise NotImplementedError("the hedging tester reads Forex Factory red + orange (T7); other news sets: L19c")
+    events = settings.get("news_events") if events is None else events
+    if events not in NEWS_COLOURS:
+        raise NotImplementedError(f"the hedging tester reads {' or '.join(NEWS_COLOURS)}, not {events!r}")
     ff = FF.load()
-    ff = ff[ff["colour"].isin(["red", "orange"]) & ~ff["timeMasked"].astype(bool)]
+    ff = ff[ff["colour"].isin(list(NEWS_COLOURS[events])) & ~ff["timeMasked"].astype(bool)]
     ev = pd.read_parquet(config.NEWS_DIR / "events.parquet", columns=["utc", "scheduled"])
     unsched = set(pd.DatetimeIndex(ev.loc[~ev["scheduled"].astype(bool), "utc"]).floor("min"))
     utc = pd.DatetimeIndex(ff["utc"]).floor("min")
@@ -292,6 +351,7 @@ class MarketFacts:
     news: np.ndarray
     setup_signals: int = 0
     closers: dict = field(default_factory=dict)   # which of his entries close a leg (M10): entry -> signals, or why not
+    news_key: tuple | None = None                 # (news_events, news_minutes_before) the news was made with
 
     @classmethod
     def build(cls, market, fp: str, book: engine._Bars, *, news: np.ndarray | None = None,
@@ -303,9 +363,45 @@ class MarketFacts:
             from machine.entries import closers
             got = closers.closing_setups(market, book)
             setups, n_sig, which = got.setups, got.signals, got.which
+        key = (settings.get("news_events"), int(settings.get("news_minutes_before")))
         if news is None:
-            news = news_moments(book.first, book.last, int(settings.get("news_minutes_before")))
-        return cls(market, fp, book, setups, news, n_sig, which)
+            news = news_moments(book.first, book.last, key[1], key[0])
+        return cls(market, fp, book, setups, news, n_sig, which, key)
+
+    def with_news(self, R: "Rules") -> "MarketFacts":
+        """These facts with the news a version reads (M28: red only, or other minutes before) - the same facts when it
+        is the news they were made with (facts made without a key: today's settings)."""
+        made = self.news_key or (settings.ALL["news_events"].value, int(settings.ALL["news_minutes_before"].value))
+        want = (R.news_events, int(R.news_lead_min))
+        if want == made:
+            return self
+        news = news_moments(self.book.first, self.book.last, want[1], want[0])
+        return MarketFacts(self.market, self.fp, self.book, self.setups, news, self.setup_signals, self.closers, want)
+
+    # ---- asked only by his TEST rows (L19c) ----------------------------------------------------------------------
+    def zone_in_path(self, direction: str, t, entry: float, target: float, min_rank: int) -> dict | None:
+        """The zone standing between the entry and the target at moment t (zones.in_path; M30, M32)."""
+        from machine.blocks import zones as ZN
+        i = self.market.closed_by("5m", t)
+        return None if i < 0 else ZN.in_path(self.market.zone_life(self.fp), i, direction, entry, target, min_rank)
+
+    def zone_edge(self, side: str, t, price: float, max_away: float | None, min_rank: int) -> dict | None:
+        """The nearest live zone on `side` of price at moment t, at least min_rank: its near and far edge (M31)."""
+        from machine.blocks import zones as ZN
+        i = self.market.closed_by("5m", t)
+        return None if i < 0 else ZN.nearest_edge(self.market.zone_life(self.fp), i, side, price, max_away,
+                                                  min_rank=min_rank)
+
+    def trend_line(self, direction: str, t) -> bool:
+        """M22's 'trendline': a trendline of his alive on the 5-minute chart at t, running `direction`'s way (falling
+        for a sell, rising for a buy) - Claude's reading of '+ trendline' (strategy-code.md section 18)."""
+        i = self.market.closed_by("5m", t)
+        if i < 0:
+            return False
+        L = self._levels()
+        m = (L["start"] <= i) & (i < L["end"])
+        m &= (L["slope"] < 0) if direction == "sell" else (L["slope"] > 0)
+        return bool(m.any())
 
     def dial(self, direction: str, t) -> str:
         from machine.ideas.compile import DIAL_CHARTS
@@ -397,6 +493,16 @@ class HedgedTrade:
     news_acts: int = 0
     whole_trade_refusals: int = 0             # M17: a last leg's close refused (the whole trade was red)
     line_moves: int = 0                       # M27: candles the first hedge moved with the trendline
+    # his TEST rows (L19c): how often each acted in this trade
+    real_stops: int = 0                       # M02: the hedge price was a real stop
+    cap_stops: int = 0                        # M21: the cap of hedges was reached - the hedge price was a stop
+    friday: int = 0                           # M09: a Friday entry decided by on_a_friday
+    escapes: int = 0                          # M22: a leg closed by the trend escape, inside the 1:4 zone
+    zone_hedges: int = 0                      # M31: the first hedge put at a strong zone
+    zone_small: int = 0                       # M32: the target cut back to a zone against the trade
+    dbl_booked: int = 0                       # M30: booked at the zone before the target
+    dbl_back: int = 0                         # M30: back in after the booking
+    split_holds: int = 0                      # M24: held past a target with the hour and the day split
     ambiguous: list[str] = field(default_factory=list)
     exit_ts: pd.Timestamp | None = None
     exit_reason: str | None = None
@@ -444,6 +550,10 @@ class _Manager:
         self.slope = float(slope) if slope is not None and R.follow == "line" and s.levels == "price" else None
         self.H0 = hedge_at
         self.k0 = int(np.searchsorted(self.b.tf_open, _ns(s.known_at), "left")) - 1
+        self.stop_trade = False                                     # M02: the hedge price is a real stop
+        self.dbl: dict | None = None                                # M30: the zone to book at, while armed
+        self.dbl_state = "off"                                      # off | armed | waiting | done
+        self.dbl_since = 0
         self.say(f.i, "entry", f.px, f"{s.direction} filled at {f.px:.2f}; hedge point {hedge_at:.2f}, "
                                      f"target {target:.2f}")
 
@@ -477,35 +587,209 @@ class _Manager:
     def room_for(self, t, r: float) -> float | None:
         return self.R.next_liq_adr * r if math.isfinite(r) else None
 
+    # ---- the entry decisions (M06, and his TEST rows M02, M09, M30, M31, M32 - L19c) -------------------------------
+    def _give_room(self, t0, head: str) -> None:
+        """M06: the hedge waits at the next liquidity past the hedge point (M07: how_much_room days past it if none)."""
+        s, R = self.s, self.R
+        side = "low" if s.direction == "buy" else "high"            # where a buy's hedge waits: below
+        r = self.f.ruler(t0)
+        lv = self.f.next_level(side, self.H, t0, self.room_for(t0, r))
+        why = f"{head}: the hedge waits at the next liquidity {lv or 0:.2f}"
+        if lv is None and math.isfinite(r):
+            lv = self.H - SIGN[s.direction] * R.room_adr * r
+            why = (f"{head}, no liquidity there: the hedge waits {R.room_adr:g} day's range past the hedge point, "
+                   f"at {lv:.2f}")
+        if lv is not None:
+            self.t.room = True
+            self.H = round(float(lv), 6)
+            self.say(self.fill.i, "room", self.H, why + " (M06, #111)")
+
+    def _real_stop_at_entry(self, t0) -> bool:
+        """M02: always, or when_small - the hedge distance at entry (MT5 prices) at most small_adr of a day's range."""
+        if self.R.protection == "always":
+            return True
+        r = self.f.ruler(t0)
+        return math.isfinite(r) and abs(self.legs[0].ref - self.H) <= self.R.small_adr * r + EPS
+
+    def _zone_hedge(self, t0) -> None:
+        """M31: the FIRST hedge at a strong zone against the trade (nearer / zone / zone_break)."""
+        s, R = self.s, self.R
+        y = SIGN[s.direction]
+        r = self.f.ruler(t0)
+        if not math.isfinite(r):
+            return
+        z = self.f.zone_edge("low" if y > 0 else "high", t0, self.fill.px, R.zone_hedge_adr * r, R.zone_hedge_rank)
+        if z is None:
+            return
+        if R.zone_hedge == "nearer":
+            new = z["price"] if y * (z["price"] - self.H) > EPS else None    # the zone comes first on the way down
+        elif R.zone_hedge == "zone":
+            new = z["price"]
+        else:
+            new = z["far"]                                                     # the zone grid: hedge on its break
+        if new is None or abs(new - self.H) <= EPS:
+            return
+        old, self.H = self.H, round(float(new), 6)
+        self.t.zone_hedges += 1
+        edge = "far edge (price has broken through it)" if R.zone_hedge == "zone_break" else "near edge"
+        self.say(self.fill.i, "zone hedge", self.H, f"a strong zone (rank {z['rank']}) against the trade: the hedge "
+                                                    f"waits at its {edge} {self.H:.2f}, not {old:.2f} (M31, "
+                                                    f"strong_zone_as_hedge_point = {R.zone_hedge})")
+
+    def _zone_in_path(self, t0) -> None:
+        """M32 small: the target cut back to a zone standing between the entry and the target. M30: that zone is
+        booked at (double profit) - small first (the old manager's order)."""
+        s, R = self.s, self.R
+        small = R.zone_against == "small"
+        z = self.f.zone_in_path(s.direction, t0, self.fill.px, self.T, R.zone_against_rank if small else R.dbl_rank)
+        if z is None:
+            return
+        if small:
+            old, self.T = self.T, round(float(z["book_at"]), 6)
+            self.t.zone_small += 1
+            self.say(self.fill.i, "aim small", self.T, f"a zone (rank {z['rank']}) stands between the entry and the "
+                                                       f"target {old:.2f}: the target is its near edge {self.T:.2f} "
+                                                       "(M32, in_a_zone_against_you = small)")
+        else:
+            self.dbl, self.dbl_state = z, "armed"
+            self.say(self.fill.i, "double profit", z["book_at"], f"a zone (rank {z['rank']}) before the target: book "
+                                                                 f"at {z['book_at']:.2f}, then back in ({R.dbl}) for "
+                                                                 f"the target {self.T:.2f} (M30)")
+
+    # ---- a real stop: M02 always / when small, M21 at the cap ------------------------------------------------------
+    def _capped(self) -> bool:
+        return self.R.max_covers is not None and self.t.hedges >= self.R.max_covers
+
+    def _stop(self, m: int, px: float, leg: Leg) -> tuple[str, int, bool]:
+        """The hedge price acts as a real stop: the leg closes there and the trade ends (a stop is a stop - M17 does
+        not hold it open)."""
+        if self.stop_trade:
+            self.t.real_stops += 1
+            why = (f"a real stop at the hedge point {self.H:.2f} (M02, a_real_stop_instead_of_the_hedge = "
+                   f"{self.R.protection})")
+        else:
+            self.t.cap_stops += 1
+            why = (f"the cap: {self.t.hedges} hedges already (M21, how_many_covers_allowed = {self.R.max_covers}) - "
+                   f"the hedge price {self.H:.2f} is a stop now")
+        self.close(leg, m, px, why)
+        self.say(m, "stop", leg.close_px, f"{why}: the {leg.direction} closed, Rs {leg.pnl.net_inr:,.0f}")
+        return "end", m, False
+
+    # ---- M30: book at the zone, then wait to get back in ------------------------------------------------------------
+    def _book(self, m: int, leg: Leg) -> tuple[str, int, bool]:
+        b = self.b
+        px = b._target_px(m, self.dbl["book_at"], leg.direction == "buy")
+        why = f"double profit: booked at the zone before the target, {self.dbl['book_at']:.2f} (M30)"
+        self.close(leg, m, px, why)
+        self.had_close = True
+        self.t.dbl_booked += 1
+        self.dbl_state, self.dbl_since = "waiting", int(b.t[m])
+        self.say(m, "book", leg.close_px, f"{why}: the {leg.direction} closed, Rs {leg.pnl.net_inr:,.0f}; back in "
+                                          f"by '{self.R.dbl}' unless price reaches the target {self.T:.2f} or the "
+                                          f"hedge price {self.H:.2f} first")
+        return "wait", m + 1, False
+
+    def _scan(self, p: int, end: int, hit) -> int:
+        """The first minute in [p, end) where hit(a, q) (a bool array over [a, q)) is True, else end."""
+        size = 256
+        while p < end:
+            q = min(end, p + size)
+            h = hit(p, q)
+            if h.any():
+                return p + int(np.argmax(h))
+            p, size = q, min(size * 4, 1 << 20)
+        return end
+
+    def _wait(self, p: int) -> tuple[str, int, bool]:
+        """After the booking: back in once (retest / break / setup), unless the target or the hedge price comes first
+        (then the trade ends with the one profit). The same minute: no re-entry (the worse case), counted ambiguous."""
+        b, s, R = self.b, self.s, self.R
+        buy = s.direction == "buy"
+        m_end = self._scan(p, b.n, lambda a, q: b._target_hit(a, q, self.T, buy) | b._stop_hit(a, q, self.H, buy))
+        st = None
+        if R.dbl == "retest":                                   # a limit back at the booking price
+            L = float(self.dbl["book_at"])
+            m_back = self._scan(p, min(b.n, m_end + 1), lambda a, q: (b.lo[a:q] + b.sp[a:q] <= L + EPS) if buy
+                                else (b.h[a:q] >= L - EPS))
+        elif R.dbl == "break":                                  # a stop order past the zone's far edge
+            F = float(self.dbl["far"])
+            m_back = self._scan(p, min(b.n, m_end + 1), lambda a, q: b._stop_hit(a, q, F, not buy))
+        else:                                                   # the next setup of his this way fills
+            m_back = b.n
+            for k in range(self._first_setup(p), len(self.f.setups)):
+                x = self.f.setups[k]
+                if x.direction == s.direction and x.known >= self.dbl_since:
+                    st, m_back = x, x.fill_i
+                    break
+        if m_back < b.n and m_back == m_end:
+            self.t.ambiguous.append("the way back in and the target / hedge price in one minute: no re-entry counted")
+        if m_back < m_end:
+            if R.dbl == "retest":
+                at_open = (b.o[m_back] + b.sp[m_back] <= L + EPS) if buy else (b.o[m_back] >= L - EPS)
+                px = float(b.o[m_back]) if at_open else (L - float(b.sp[m_back]) if buy else L)
+            elif R.dbl == "break":
+                px = float(b._stop_px(m_back, F, not buy))
+                at_open = abs(px - float(b.o[m_back])) <= EPS
+            else:
+                px, at_open = st.fill_px, st.at_open
+            leg = Leg(s.direction, m_back, round(px, 6), "back in", self._mt5(s.direction, round(px, 6), m_back))
+            self.legs.append(leg)
+            self.t.dbl_back += 1
+            self.dbl_state = "done"
+            self.say(m_back, "back in", leg.open_px, f"back in, {s.direction} at {leg.open_px:.2f} (M30, {R.dbl}"
+                                                     + (f": {st.id}" if st is not None else "") + f"): the same target "
+                                                     f"{self.T:.2f} and hedge price {self.H:.2f}")
+            return "one", m_back, not at_open
+        if m_end >= b.n:
+            return "open", b.n, False
+        self.dbl_state = "done"
+        self.say(m_end, "wait over", None, "price reached the target or the hedge price before the way back in: the "
+                                           "trade ends with the one profit (M30)")
+        return "end", m_end, False
+
+    # ---- M22: the trend escape --------------------------------------------------------------------------------------
+    def _trend_runs(self, st: Setup) -> bool:
+        """'HTF trending + trendline' (strategy-code.md section 18): at the setup's fill the hour AND the day are both
+        its way, and a trendline of his runs that way."""
+        t = self.ts(st.fill_i)
+        return self.f.dial(st.direction, t) == "with" and self.f.trend_line(st.direction, t)
+
     # ---- the whole life ---------------------------------------------------------------------------------------
     def run(self) -> tuple[HedgedTrade, int]:
         f, s, R = self.fill, self.s, self.R
         t0 = self.ts(f.i)
-        side = "low" if s.direction == "buy" else "high"            # where a buy's hedge waits: below
+        if R.protection != "never" and self._real_stop_at_entry(t0):
+            self.stop_trade = True
+            self.say(f.i, "real stop", self.H, f"a REAL STOP at the hedge point {self.H:.2f} instead of the hedge "
+                                               f"(M02, a_real_stop_instead_of_the_hedge = {R.protection}, #17)")
         if self.slope is not None:
             self.say(f.i, "line", self.H, "a trendline entry: the hedge sits a few pips past the line and moves with it "
                                           "(M27; strategy.md section 9) - no room (M06): #69, with the day and the "
                                           "hour both with it, 'keep the hedging below the trend line itself'")
-        elif R.room == "hd" and self.f.dial(s.direction, t0) == "with":
-            r = self.f.ruler(t0)
-            lv = self.f.next_level(side, self.H, t0, self.room_for(t0, r))
-            why = f"the hour and the day are with the trade: the hedge waits at the next liquidity {lv or 0:.2f}"
-            if lv is None and math.isfinite(r):
-                lv = self.H - SIGN[s.direction] * R.room_adr * r
-                why = (f"the hour and the day are with the trade, no liquidity there: the hedge waits "
-                       f"{R.room_adr:g} day's range past the hedge point, at {lv:.2f}")
-            if lv is not None:
-                self.t.room = True
-                self.H = round(float(lv), 6)
-                self.say(f.i, "room", self.H, why + " (M06, #111)")
+        elif not self.stop_trade:
+            if R.friday != "as_any_day" and t0.weekday() == 4:
+                self.t.friday = 1
+                if R.friday == "room":
+                    self._give_room(t0, "a Friday entry gets room (M09, on_a_friday = room)")
+                else:
+                    self.say(f.i, "friday", self.H, "a Friday entry gets no room: the hedge waits at the hedge point "
+                                                    "(M09, on_a_friday = hedge)")
+            elif R.room == "hd" and self.f.dial(s.direction, t0) == "with":
+                self._give_room(t0, "the hour and the day are with the trade")
+            if R.zone_hedge != "off":
+                self._zone_hedge(t0)
         if s.direction == "buy" and self.f.at_all_time_high(t0):
-            self.t.at_all_time_high = True                           # M08 waits for strong zones (L6b.2)
+            self.t.at_all_time_high = True                           # M08: counted only
+        if R.zone_against == "small" or R.dbl != "off":
+            self._zone_in_path(t0)
         state, p, first_minute = "one", f.i, not f.at_open
         while True:
             if state == "one":
                 state, p, first_minute = self._one(p, first_minute)
             elif state == "two":
                 state, p, first_minute = self._two(p)
+            elif state == "wait":
+                state, p, first_minute = self._wait(p)
             else:
                 break
         if state == "open":
@@ -531,7 +815,9 @@ class _Manager:
             lim = b.n
             if self._following():
                 lim = self._follow(p, leg)                      # M27: this candle's hedge price, until its end
-            m_px = b._first_event(p, self.H, self.T, buy, lim)
+            book = self.dbl_state == "armed"                    # M30: the zone before the target comes first
+            tgt = float(self.dbl["book_at"]) if book else self.T
+            m_px = b._first_event(p, self.H, tgt, buy, lim)
             m_news = self._next_news(p)
             m_set, st = self._next_trail_setup(p, leg) if self.trailing else (b.n, None)
             m = min(m_px, m_news, m_set)
@@ -547,12 +833,14 @@ class _Manager:
                 p = m + 1
                 continue
             hh = m == m_px and bool(b._stop_hit(m, m + 1, self.H, buy).any())
-            th = m == m_px and bool(b._target_hit(m, m + 1, self.T, buy).any())
+            th = m == m_px and bool(b._target_hit(m, m + 1, tgt, buy).any())
             ch = m == m_set
             if hh:
                 if th or ch:
                     self.t.ambiguous.append("the hedge price and a target / close in one minute: the hedge counted")
                 return self._hedge(m, b._stop_px(m, self.H, buy), "hedge")
+            if th and book:
+                return self._book(m, leg)
             if th:
                 if ch:
                     self.t.ambiguous.append("the target and an opposite setup in one minute: the target counted")
@@ -615,8 +903,10 @@ class _Manager:
 
     def _news(self, m: int, leg: Leg) -> tuple[str, int, bool] | None:
         px = float(self.b.o[m])
-        self.t.news_acts += 1
         net = self.money(leg, m, px).net_inr
+        if net <= 0 and (self.stop_trade or self._capped()):
+            return None                                 # M02: the real stop protects / M21: no more hedges
+        self.t.news_acts += 1
         if net > 0:                                     # a leg in profit never meets M17's "ends red"
             return self._last_close(m, leg, px, f"news in {self.R.news_lead_min} minutes and the leg is in profit "
                                                 f"(Rs {net:,.0f} after its cost): closed where it is (M28, #110)")
@@ -624,6 +914,10 @@ class _Manager:
 
     def _hedge(self, m: int, px: float, why: str) -> tuple[str, int, bool]:
         (leg,) = self.open_legs()
+        if why == "hedge" and (self.stop_trade or self._capped()):
+            return self._stop(m, px, leg)               # M02 / M21: the hedge price is a real stop
+        if self.dbl_state == "armed":
+            self.dbl_state = "off"                      # M30: once hedged, the booking before the target is gone (M14)
         d = OTHER[leg.direction]
         h = Leg(d, m, round(float(px), 6), why, self._mt5(d, round(float(px), 6), m))
         self.legs.append(h)
@@ -641,16 +935,23 @@ class _Manager:
     def _at_target(self, m: int, leg: Leg) -> tuple[str, int, bool] | None:
         b, R, buy = self.b, self.R, leg.direction == "buy"
         t = self.ts(m)
-        if R.trail == "hd" and self.t.trail_steps < R.trail_max and self.f.dial(leg.direction, t) == "with":
-            nx = self.f.next_level("high" if buy else "low", self.T, t, self.room_for(t, self.f.ruler(t)))
-            if nx is not None:
-                self.say(m, "trail", self.T, f"target {self.T:.2f} reached with the hour and the day on side: "
-                                             f"holding on to the next liquidity {nx:.2f} (M23, M25)")
-                self.T = round(float(nx), 6)
-                self.t.trail_steps += 1
-                if not self.trailing:
-                    self.trailing, self.trail_since = True, int(b.t[m])
-                return None
+        if R.trail == "hd" and self.t.trail_steps < R.trail_max:
+            d = self.f.dial(leg.direction, t)
+            if d == "with" or (d == "mixed" and R.split == "hold"):
+                nx = self.f.next_level("high" if buy else "low", self.T, t, self.room_for(t, self.f.ruler(t)))
+                if nx is not None:
+                    if d == "with":
+                        words = "with the hour and the day on side"
+                    else:
+                        words = "with the hour and the day split - held (M24, trail_when_hour_and_day_split = hold)"
+                        self.t.split_holds += 1
+                    self.say(m, "trail", self.T, f"target {self.T:.2f} reached {words}: holding on to the next "
+                                                 f"liquidity {nx:.2f} (M23, M25)")
+                    self.T = round(float(nx), 6)
+                    self.t.trail_steps += 1
+                    if not self.trailing:
+                        self.trailing, self.trail_since = True, int(b.t[m])
+                    return None
         return self._last_close(m, leg, b._target_px(m, self.T, buy), f"target {self.T:.2f} reached")
 
     def _last_close(self, m: int, leg: Leg, px: float, why: str) -> tuple[str, int, bool] | None:
@@ -687,20 +988,33 @@ class _Manager:
                 continue
             shut = legs[OTHER[st.direction]]                   # the leg the setup points against (M11)
             if SIGN[shut.direction] * (self._mt5(st.direction, st.fill_px, st.fill_i) - shut.ref) < need - EPS:
-                continue                                        # inside the no-close zone (M12)
+                # inside the no-close zone (M12) - only the trend escape closes there (M22, a version)
+                if (R.escape and self.money(shut, st.fill_i, st.fill_px).net_inr < 0 and self._trend_runs(st)):
+                    return self._after_close(st, shut, legs[st.direction], escape=True)
+                continue
+            if R.which_close == "profit" and self.money(shut, st.fill_i, st.fill_px).net_inr <= 0:
+                continue                                        # #105 (a comparison): only the leg in profit closes
             return self._after_close(st, shut, legs[st.direction])
         return "open", self.b.n, False
 
-    def _after_close(self, st: Setup, shut: Leg, left: Leg) -> tuple[str, int, bool]:
+    def _after_close(self, st: Setup, shut: Leg, left: Leg, escape: bool = False) -> tuple[str, int, bool]:
         R, m = self.R, st.fill_i
         at = self._mt5(st.direction, st.fill_px, m)                 # the setup's fill as MT5 shows it
         moved = SIGN[shut.direction] * (at - shut.ref)
-        self.close(shut, m, st.fill_px, f"a {st.direction} setup ({st.id}) filled {moved:.2f} past this leg's "
-                                        f"current entry {shut.ref:.2f} (needed {R.min_rr * self.R_dist:.2f})")
+        if escape:
+            self.t.escapes += 1
+            self.close(shut, m, st.fill_px, f"the trend escape: a {st.direction} setup ({st.id}) filled with the hour "
+                                            f"and the day that way and a trendline of his running that way - the "
+                                            f"losing leg closed inside the 1:4 zone ({moved:.2f} of "
+                                            f"{R.min_rr * self.R_dist:.2f})")
+        else:
+            self.close(shut, m, st.fill_px, f"a {st.direction} setup ({st.id}) filled {moved:.2f} past this leg's "
+                                            f"current entry {shut.ref:.2f} (needed {R.min_rr * self.R_dist:.2f})")
         self.had_close = True
         self.t.closes_while_hedged += 1
         self.say(m, "close", st.fill_px, f"a {st.direction} setup filled: the {shut.direction} closed at its fill "
-                                         f"price, Rs {shut.pnl.net_inr:,.0f} (M10, M11, M12)")
+                                         f"price, Rs {shut.pnl.net_inr:,.0f} "
+                                         + ("(M22: the trend escape, a version)" if escape else "(M10, M11, M12)"))
         # step 5: the leg left is that setup's own trade (M15), with a proper target (M16)
         y, t = SIGN[left.direction], self.ts(m)
         left.ref = at
@@ -741,6 +1055,12 @@ def _reason(why: str) -> str:
         return "news, in profit"
     if why.startswith("an opposite setup"):
         return "opposite setup after trailing"
+    if why.startswith("a real stop"):
+        return "real stop (M02)"
+    if why.startswith("the cap"):
+        return "the cap of hedges, a stop (M21)"
+    if why.startswith("double profit"):
+        return "double profit, booked only (M30)"
     return "other"
 
 
@@ -772,6 +1092,8 @@ def replay(signals: list[Signal], facts: Facts, tf: str = "5m", rules: Rules | N
     moves: {signal id: the trendline's slope, price per candle of tf} - its first hedge moves with the line (M27).
     cancel_by: {signal id: moment ns} - a check before the fill cancels the order then (engine.replay's, L19b)."""
     R = rules or Rules.now()
+    if hasattr(facts, "with_news"):
+        facts = facts.with_news(R)                      # M28: the news set and minutes this version reads
     moves, cancel_by = moves or {}, cancel_by or {}
     b = facts.book
     if b.tf != tf:
@@ -816,6 +1138,10 @@ def replay(signals: list[Signal], facts: Facts, tf: str = "5m", rules: Rules | N
 # the summary and the table
 # ================================================================================================================
 
+ACTED = ("real_stops", "cap_stops", "friday", "escapes", "zone_hedges", "zone_small", "dbl_booked", "dbl_back",
+         "split_holds")                         # his TEST rows (L19c): how often each acted
+
+
 def summarize(rep: HedgeReplay) -> dict:
     closed = [t for t in rep.trades if t.status == "closed"]
     open_end = [t for t in rep.trades if t.status == "open at end"]
@@ -855,6 +1181,7 @@ def summarize(rep: HedgeReplay) -> dict:
         "news_acts": sum(t.news_acts for t in closed),
         "whole_trade_refusals": sum(t.whole_trade_refusals for t in closed),
         "line_trades": sum(t.line_moves > 0 for t in closed),
+        "test_rows_acted": {k: v for k, v in {k: sum(int(getattr(t, k)) for t in closed) for k in ACTED}.items() if v},
         "ended_by": dict(Counter(t.exit_reason for t in closed)),
         "ambiguous": sum(bool(t.ambiguous) for t in closed),
         "at_all_time_high_buys": sum(t.at_all_time_high for t in rep.trades),
@@ -895,6 +1222,9 @@ def summary_text(s: dict, label: str = "") -> str:
         f"OPEN AT END (not counted in Rs): {s['open_at_end']} · buys at the all-time high (M08, counted only - not "
         f"built): {s['at_all_time_high_buys']}",
     ]
+    if s.get("test_rows_acted"):
+        lines.append("His test rows that acted (L19c versions): "
+                     + " · ".join(f"{k} {v}" for k, v in s["test_rows_acted"].items()))
     return "\n".join(lines)
 
 

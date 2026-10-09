@@ -4,9 +4,23 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from machine import settings
+
 # Monday 7 Jan 2019, winter: server time = UTC + 2 (machine/data/README.md)
 START = pd.Timestamp("2019-01-07 01:00")
 SERVER_MINUS_UTC = pd.Timedelta(hours=2)
+
+# The highest price before made-up bars (they all start in 2019): gold's September 2011 record, because the real
+# 2016-2018 daily highs never reached it - on the real bars Market.ath_before() gives the same 1920.94 (checked
+# 4 Oct 2026). Handed over, a compile on made-up prices never opens the real price file, which GitHub's CI does not
+# have (data/ is not in git): 11 tests failed there on every push.
+FAKE_ATH_BEFORE = float(settings.get("all_time_high_before_2016"))
+
+
+def fake_market(m1: pd.DataFrame, tfs=("5m", "1h", "1d", "1w")):
+    """Market.from_m1 for made-up 1-minute bars, with FAKE_ATH_BEFORE."""
+    from machine.ideas.compile import Market
+    return Market.from_m1(m1, tfs, ath_before=FAKE_ATH_BEFORE)
 
 
 def bars_from(rows, tf_minutes: int = 5, start=START) -> pd.DataFrame:

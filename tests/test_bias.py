@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from machine import guards, settings
+from machine.blocks import adr as ADR
 from machine.blocks import bias as B
 from machine.blocks import halfway as HW
 from machine.blocks import hammer as HM
@@ -188,6 +189,48 @@ def test_no_future_zones_and_arrivals():
         guards.assert_no_future_events(lambda b: PD.arrivals(b, "5m", side), bars, 5, [n // 3, n // 2, n - 7])
 
 
+def _beyond(bars, side, pad=0.0):
+    """Hand-made: the 5-minute closes past the green zone's bottom ('bottom') or the red zone's top ('top')."""
+    a = ADR.adr_bars(bars, "5m")
+    close = bars["close"].to_numpy()
+    with np.errstate(invalid="ignore"):
+        if side == "top":
+            return close > a["up_hi"].to_numpy() + pad * a["ruler"].to_numpy()
+        return close < a["dn_lo"].to_numpy() - pad * a["ruler"].to_numpy()
+
+
+def test_breaks_a_close_past_the_far_edge_never_a_wick():
+    """L6-new (idea #4, #76 'if it breaks the lower range of ADR, lower zone, it will go further low'): a break = a
+    5-minute CLOSE below the green zone's bottom (a sell) or above the red zone's top (a buy); a run counts once a day."""
+    bars = random_bars(20 * 288, seed=4)
+    day = bars.index.normalize().to_numpy()
+    for side in ("top", "bottom"):
+        beyond = _beyond(bars, side)
+        b = PD.breaks(bars, "5m", side)
+        pos = bars.index.get_indexer(pd.DatetimeIndex(b["bar"]))
+        starts = np.flatnonzero(beyond & ~(np.r_[False, beyond[:-1]] & np.r_[False, day[1:] == day[:-1]]))
+        assert len(b) > 3 and list(pos) == list(starts)
+        assert (b["price"].to_numpy() == bars["close"].to_numpy()[pos]).all()
+    a = ADR.adr_bars(bars, "5m")
+    with np.errstate(invalid="ignore"):
+        wick = (bars["low"].to_numpy() < a["dn_lo"].to_numpy()) & ~_beyond(bars, "bottom")
+    found = set(bars.index.get_indexer(pd.DatetimeIndex(PD.breaks(bars, "5m", "bottom")["bar"])))
+    assert wick.any() and not found & set(np.flatnonzero(wick))           # a wick below that closed back: no break
+    with settings.using({"adr_break_beyond_adr": 0.05}):
+        far = PD.breaks(bars, "5m", "bottom")
+    pos = bars.index.get_indexer(pd.DatetimeIndex(far["bar"]))
+    assert len(far) and _beyond(bars, "bottom", 0.05)[pos].all()
+    with pytest.raises(ValueError, match="side"):
+        PD.breaks(bars, "5m", "below")
+
+
+def test_no_future_breaks():
+    bars = random_bars(14 * 288, seed=12)
+    n = len(bars)
+    for side in ("top", "bottom"):
+        guards.assert_no_future_events(lambda b: PD.breaks(b, "5m", side), bars, 5, [n // 3, n // 2, n - 7])
+
+
 # ================================================================================================= the hammer
 
 def test_his_hammer_a_long_wick_that_took_the_liquidity_and_snapped_back():
@@ -313,6 +356,46 @@ def test_the_zone_step_as_a_check_and_as_the_start(market):
         assert PD.place(s.entry_price, z.iloc[i]) == ("premium" if s.direction == "sell" else "discount")
     start = C.compile_idea(Idea.load(zone_start()), market)
     assert start.funnel["adr"]["buy"] > 0 and start.funnel["adr"]["sell"] > 0
+
+
+def zone_break_start(**kw) -> dict:
+    """Idea #4's shape (L6-new): a 5-minute close past his ADR zone, then the grab, the break, the gap."""
+    d = type1(id="idea-915", title="the ADR zone broken, then the grab (a test form)")
+    d["steps"] = [dict(id="zb", what="a 5-minute close past the ADR zone", block="adr_zone_break", tf="5m")] + [
+        {**d["steps"][0], "max_wait_bars": 30}] + d["steps"][1:]
+    d.update(kw)
+    return d
+
+
+def test_the_zone_break_step_as_the_start_and_as_a_later_step(market):
+    out = C.compile_idea(Idea.load(zone_break_start()), market, trace=True)
+    assert out.funnel["zb"]["buy"] > 0 and out.funnel["zb"]["sell"] > 0 and out.signals
+    fp = settings.fingerprint(out.resolved)
+    z = market.adr_zones(fp, "near_the_zone")
+    close = market.arrays("5m")["close"]
+    for s, facts in kept(out):
+        j = market.bars("5m").index.get_loc(facts["zb"]["bar"])
+        assert close[j] < z["dn_lo"].iat[j] if s.direction == "sell" else close[j] > z["up_hi"].iat[j]
+        assert (facts["zb"]["zone_lo"], facts["zb"]["zone_hi"]) == (
+            (z["dn_lo"].iat[j], z["dn_hi"].iat[j]) if s.direction == "sell" else (z["up_lo"].iat[j], z["up_hi"].iat[j]))
+        assert pd.Timestamp(facts["sweep"]["bar"]) >= pd.Timestamp(facts["zb"]["known_at"])   # the grab comes after
+    later = type1(id="idea-916")
+    later["steps"] = later["steps"][:1] + [dict(id="zb", what="then a 5-minute close past the ADR zone",
+                                                block="adr_zone_break", tf="5m", max_wait_bars=30)] + later["steps"][1:]
+    got = C.compile_idea(Idea.load(later), market, trace=True)
+    assert got.funnel["zb"]["buy"] + got.funnel["zb"]["sell"] > 0
+    for s, facts in kept(got):
+        assert pd.Timestamp(facts["zb"]["bar"]) >= pd.Timestamp(facts["sweep"]["known_at"])
+
+
+def test_the_zone_break_is_not_the_old_band_filter():
+    """The old project only DROPPED setups whose fill candle closed past the band (band_pass_through_filter, §33g -
+    and that number read the future). Trading after the close is not that row: a close relative, never 'seen'."""
+    from machine.referee import prior
+    seen = prior.already_seen(prior.key_for_form(Idea.load(zone_break_start())), range(2016, 2024))
+    assert not seen.seen and "band_pass_through_filter" in [r.idea_key for r in seen.relatives]
+    at = prior.already_seen(prior.key_for_form(Idea.load(zone_start())), range(2016, 2024))
+    assert at.seen and [r.idea_key for r in at.rows] == ["band_pass_through_filter"]    # 'at the zone' still is
 
 
 def test_the_hammer_and_the_all_time_high_checks(market):

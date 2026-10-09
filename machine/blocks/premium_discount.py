@@ -28,6 +28,12 @@ Both numbers are Claude's (his #5 and #76 give none).
   share(price, row)           0 at the bottom of the green zone, 1 at the top of the red zone (can be below 0 / above 1).
   arrivals(bars, tf, side, measure)   the bars where price COMES to a zone: side "top" = the first bar of a run whose
                               high reaches premium (a new day starts a new run); "bottom" = the mirror with the lows.
+  breaks(bars, tf, side)      the bars where price BREAKS a zone (L6-new, idea #4; #76 "if it breaks the lower range of
+                              ADR, lower zone, it will go further low"): side "bottom" = the first bar of a run whose
+                              CLOSE is below the green zone's bottom (dn_lo) by settings "adr_break_beyond_adr" of a
+                              day's range; "top" = the mirror above the red zone's top (up_hi). A close, never a wick
+                              (rules.py what_a_real_zone_break_is). A new day starts a new run. Claude's reading: a
+                              close back inside ends the run, so a later close beyond is a new break.
 """
 from __future__ import annotations
 
@@ -97,3 +103,24 @@ def arrivals(bars: pd.DataFrame, tf: str, side: str, measure: str = "near_the_zo
     same_day = np.r_[False, day[1:] == day[:-1]]
     k = np.flatnonzero(at & ~(prev_at & same_day))
     return pd.DataFrame({"known_at": z["known_at"].to_numpy()[k], "bar": bars.index[k], "price": px[k]})
+
+
+def breaks(bars: pd.DataFrame, tf: str, side: str) -> pd.DataFrame:
+    """The bars where price breaks out of the bottom (green) or top (red) zone: bar, price (the bar's close), the zone
+    (zone_lo, zone_hi), known_at (its close). A run of closes beyond counts once; a new day starts a new run."""
+    if side not in ("top", "bottom"):
+        raise ValueError(f"side must be 'top' or 'bottom', not {side!r}")
+    check_bars(bars, tf)
+    a = ADR.adr_bars(bars, tf)
+    close = bars["close"].to_numpy(dtype=float)
+    pad = float(settings.get("adr_break_beyond_adr")) * a["ruler"].to_numpy(dtype=float)
+    lo, hi = (a["up_lo"], a["up_hi"]) if side == "top" else (a["dn_lo"], a["dn_hi"])
+    lo, hi = lo.to_numpy(dtype=float), hi.to_numpy(dtype=float)
+    with np.errstate(invalid="ignore"):                       # no zones yet (the first days): NaN = never beyond
+        beyond = close > hi + pad if side == "top" else close < lo - pad
+    day = bars.index.normalize().to_numpy()
+    prev = np.r_[False, beyond[:-1]]
+    same_day = np.r_[False, day[1:] == day[:-1]]
+    k = np.flatnonzero(beyond & ~(prev & same_day))
+    return pd.DataFrame({"known_at": bar_close(bars.index, tf)[k], "bar": bars.index[k], "price": close[k],
+                         "zone_lo": lo[k], "zone_hi": hi[k]})

@@ -123,16 +123,18 @@ def load(st: Stream) -> tuple[list[dict], dict]:
 
 
 def stream_trades(st: Stream, book: MP.MinuteBook, needs: pd.DataFrame, stories: list[dict] | None = None,
-                  recorded: dict | None = None) -> dict:
+                  recorded: dict | None = None, ended: dict[str, str] | None = None) -> dict:
     """The stream as the plan reads it (L20-notes 3a, 3b): one row per CLOSED trade with its Monday number, its money
     minute by minute (Inside), and every trade still open at the end on its own (lesson B6: never in the plan).
-    stories/recorded: given by the tests (made-up trades); else read and checked by load()."""
+    stories/recorded: given by the tests (made-up trades) or by rerun.made_again (trades made again); else read and
+    checked by load(). ended: {signal: how it ended} - else L19b's table of the stream."""
     if stories is None:
         stories, recorded = load(st)
-    ended = {}
-    if st.table.exists():
-        t = pd.read_csv(st.table)
-        ended = dict(zip(t["signal"], t["ended_by"].fillna("")))
+    if ended is None:
+        ended = {}
+        if st.table.exists():
+            t = pd.read_csv(st.table)
+            ended = dict(zip(t["signal"], t["ended_by"].fillna("")))
     rows, inside, still, hours = [], {}, [], {}
     for s in stories:
         got = MP.trade_minutes(s, book)
@@ -161,7 +163,7 @@ def stream_trades(st: Stream, book: MP.MinuteBook, needs: pd.DataFrame, stories:
     return {"stream": st, "frame": got_needs, "inside": inside, "still": still_f, "dropped": dropped,
             "dropped_signals": sorted(set(frame["signal"]) - set(got_needs["signal"])) if len(frame) else [],
             "dropped_frame": frame[~frame["signal"].isin(got_needs["signal"])] if len(frame) else frame,
-            "recorded": recorded or {}, "hours": hours}
+            "recorded": recorded or {}, "hours": hours, "stories": stories, "ended": ended}
 
 
 def _hourly(t_ns: np.ndarray, inr: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -236,8 +238,22 @@ def run(n_runs: int = MP.RESHUFFLES, write: bool = True, log=print, streams=STRE
     log(f"1-minute bars {m1.index[0]} .. {m1.index[-1]}; {len(needs)} Monday numbers, {same} of them the same as the "
         f"plain run's ({time.time() - t0:.0f} s)")
     data = {"prices": R._rel(config.GOLD_M1), "gold_m1_content_sha256": BARS.m1_fingerprint()}
-    out = build(streams, MP.MinuteBook.build(m1), needs, n_runs, log, data=data)
+    again, tester = None, None
+    if any(s.key == MAIN for s in streams):              # L20-notes 3c point 7: Type 1's real order made again
+        from machine.money import rerun
+        tester = rerun.Type1Hedging(stream(MAIN), log=log)
+        fresh, _ = tester.stories()
+        bad = rerun.same_trades(fresh, load(stream(MAIN))[0])
+        if bad:
+            raise RuntimeError(f"the hedging tester set up today is not L19b's: its trades differ at {bad[:5]} - stop "
+                               "and find why")
+        log(f"  the hedging tester set up again: the replay from the start = L19b's {len(fresh)} recorded Type 1 "
+            f"trades, leg by leg ({time.time() - t0:.0f} s)")
+        again = tester.stories
+    out = build(streams, MP.MinuteBook.build(m1), needs, n_runs, log, data=data, again=again)
     out["same_mondays"] = same
+    if tester is not None:
+        out["again_replays"] = list(tester.replays)
     if write:
         publish(out, log=log)
     return out
@@ -258,9 +274,11 @@ def same_mondays(needs: pd.DataFrame) -> int:
 
 
 def build(streams, book: MP.MinuteBook, needs: pd.DataFrame, n_runs: int = MP.RESHUFFLES, log=print,
-          data: dict | None = None, stories: dict | None = None) -> dict:
+          data: dict | None = None, stories: dict | None = None, again=None) -> dict:
     """Every number of the report (no file is written). stories: {stream key: (stories, recorded)} - the tests'
-    made-up trades; else each stream is read and checked (load)."""
+    made-up trades; else each stream is read and checked (load). again(minute) -> (stories, how each ended): the
+    hedging tester from that minute (rerun.Type1Hedging.stories, or the tests' own) - Type 1's real order is made
+    again after each stop-out (L20-notes 3c point 7); None: not made again (the report says so)."""
     t0 = time.time()
     res = []
     for st in streams:
@@ -271,7 +289,15 @@ def build(streams, book: MP.MinuteBook, needs: pd.DataFrame, n_runs: int = MP.RE
         res.append(run_stream(got, n_runs, log))
     main = next(r for r in res if r["stream"].key == MAIN)
     out = {"data": data or {"prices": "given to build()"}, "needs": needs, "n_runs": n_runs, "streams": res,
-           "main": main}
+           "main": main, "again": None}
+    if again is not None:
+        from machine.money import rerun
+        log("  Type 1, the real order made again after each stop-out (L20-notes 3c point 7):")
+        ag = rerun.made_again(main["stream"], book, needs, main["stories"], again, MP.VERSION_1,
+                              ended=main["ended"], log=log)
+        if ag["rounds"] and abs(ag["first_head"]["result"] - main["rows"][0]["head"]["result"]) > 0.005:
+            raise AssertionError("made again: its first round is not the plan's real order")
+        out["again"] = ag
     out["facts"] = facts(main, needs)
     out["years"] = MP.year_rows(main["rows"][0]["one"], main["ts"])
     out["still"] = {r["stream"].key: still_open_line(r) for r in res}
@@ -284,12 +310,19 @@ def build(streams, book: MP.MinuteBook, needs: pd.DataFrame, n_runs: int = MP.RE
 
 
 def trace_table(res: dict, row: int = 0) -> pd.DataFrame:
-    """The real order of one plan (row 0 = version 1), one line per trade taken, with the trade's own columns."""
+    """The real order of one plan (row 0 = version 1), one line per trade taken, with the trade's own columns.
+    positions_in_the_plan: a trade the broker closed counts only the positions it had opened by then."""
+    from machine.money.rerun import stop_bar
     f = res["ts"].frame
     tr = res["rows"][row]["one"].trace.copy()
     for col in ("signal", "direction", "open", "close", "closed_by", "monday", "net_inr", "gross_inr", "cost_inr",
                 "positions", "low_inr", "days"):
         tr[col] = f[col].to_numpy()[tr["trade"].to_numpy(int)] if col in f.columns else None
+    legs = {s["signal"]: s["legs"] for s in res.get("stories") or []}
+    tr["positions_in_the_plan"] = [
+        sum(pd.Timestamp(x["opened"]) <= stop_bar(o, e - s) for x in legs[g]) if stopped and g in legs else p
+        for g, o, s, e, stopped, p in zip(tr["signal"], tr["open"], tr["opened_d"], tr["ended_d"], tr["stopped_out"],
+                                          tr["positions"])]
     return tr
 
 
@@ -364,6 +397,14 @@ def summary_text(out: dict) -> str:
              f"  {out['n_runs']} orders: the middle {a['result_mid']:+,.0f}, the bad 10% {a['result_bad']:+,.0f}; "
              f"stop-outs {a['stopouts_mid']:.0f} (bad 10% {a['stopouts_bad']:.0f})",
              f"  0.01 lot a position, no plan: {fx['flat_total']:+,.0f}"]
+    ag = out.get("again")
+    if ag and ag["rounds"]:
+        g = ag["head"]
+        lines.append(f"  found again after each stop-out ({len(ag['rounds'])} rounds): {len(ag['trace'])} trades taken "
+                     f"({len(ag['ts'])} in the list); your Rs 200,000 -> {inr(g['your_money_end'])} "
+                     f"({g['result']:+,.0f}); {g['blowups']} blow-ups "
+                     f"({g['stopouts']} stop-outs), {g['doubles']} doubles; taken out {inr(g['out'])}, added back "
+                     f"{inr(g['added'])}")
     for r in out["streams"]:
         if r is main:
             continue
@@ -475,10 +516,11 @@ def account_picture(out: dict, path: Path) -> dict:
     put(double, f" {inr(double)}\n a double", D.GREEN)
     put(0, " ₹0: the broker\n closes the trade", D.INK)
     put(float(tr["need_inr"].iloc[-1]) + 0.05 * top, " money needed\n for 0.01 lot", D.RED)
-    key = [(D.INK, "line", "the money in the account (its lowest point in each hour)"),
-           (D.RED, "X", f"the broker closed a trade at ₹0 ({h['stopouts']}): the whole account lost"),
-           (D.RED, "v", f"a blow-up after a trade ({len(bu)}): below the red line, refilled from the reserve"),
-           (D.GREEN, "^", f"a double ({h['doubles']}): the profit taken out, {inr(h['out'])} in all")]
+    key = [(D.INK, "line", "the money in the account (its lowest point in each hour)", 1),
+           (D.RED, "X", f"the broker closed a trade at ₹0 ({h['stopouts']}): the whole account lost", len(so)),
+           (D.RED, "v", f"a blow-up after a trade ({len(bu)}): below the red line, refilled from the reserve", len(bu)),
+           (D.GREEN, "^", f"a double ({h['doubles']}): the profit taken out, {inr(h['out'])} in all", len(dv))]
+    key = [(colour, mark, words) for colour, mark, words, drawn in key if drawn]   # #113: only what is drawn
     handles = []
     for colour, mark, words in key:
         texts.append(words)
@@ -566,7 +608,8 @@ def write_tables(out: dict, folder: Path) -> None:
     t = pd.DataFrame({
         "signal": tr["signal"], "direction": tr["direction"], "opened": tr["open"], "closed": tr["close"],
         "ended_in_the_plan": [MP.when(x).round("s") for x in tr["ended_d"]], "closed_by": tr["closed_by"],
-        "stopped_out_at_0": tr["stopped_out"], "positions": tr["positions"], "monday": tr["monday"],
+        "stopped_out_at_0": tr["stopped_out"], "positions": tr["positions"],
+        "positions_opened_in_the_plan": tr["positions_in_the_plan"], "monday": tr["monday"],
         "money_needed_for_0.01_lot": tr["need_inr"].round(2), "inr_at_0.01_lot": tr["net_inr"].round(2),
         "lowest_point_at_0.01_lot": tr["low_inr"].round(2), "lots": tr["lots"],
         "account_at_open": tr["account_at_open"].round(2), "account_lowest_inside": tr["account_lowest_inside"].round(2),
@@ -583,6 +626,29 @@ def write_tables(out: dict, folder: Path) -> None:
     R._csv(R._rounded(out["needs"], 4), folder / "mondays.csv")
     R._csv(R._rounded(out["dips"], 3), folder / "dips.csv")
     R._csv(streams_frame(out), folder / "streams.csv")
+    ag = out.get("again")
+    if ag and ag["rounds"]:                           # Type 1's real order made again after each stop-out (3c point 7)
+        g, f = ag["trace"], ag["ts"].frame
+        k = g["trade"].to_numpy(int)
+        R._csv(pd.DataFrame({
+            "signal": g["signal"], "found_again": g["signal"].isin(ag["new_signals"]), "opened": g["open"],
+            "closed": f["close"].to_numpy()[k], "closed_by": f["closed_by"].to_numpy()[k],
+            "stopped_out_at_0": g["stopped_out"], "positions": f["positions"].to_numpy()[k],
+            "money_needed_for_0.01_lot": g["need_inr"].round(2), "inr_at_0.01_lot": f["net_inr"].to_numpy()[k].round(2),
+            "lowest_point_at_0.01_lot": f["low_inr"].to_numpy()[k].round(2), "lots": g["lots"],
+            "account_at_open": g["account_at_open"].round(2), "account_lowest_inside": g["account_lowest_inside"].round(2),
+            "inr_at_that_lot": g["inr"].round(2), "account_after_the_trade": g["account_after_trade"].round(2),
+            "taken_out": g["taken_out"].round(2)}), folder / "trades-found-again.csv")
+        ev = pd.DataFrame(ag["one"].events)
+        if len(ev):
+            ev.insert(0, "when", [MP.when(x).round("s") for x in ev.pop("t")])
+        R._csv(R._rounded(ev, 2), folder / "events-found-again.csv")
+        R._csv(pd.DataFrame(ag["rounds"]), folder / "found-again-rounds.csv")
+        new = [s for s in ag["stories"] if s["signal"] in set(ag["new_signals"])]
+        path = folder / "type1-found-again-stories.jsonl"
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text("".join(json.dumps(s, ensure_ascii=False) + "\n" for s in new), encoding="utf-8", newline="\n")
+        tmp.replace(path)
 
 
 def streams_frame(out: dict) -> pd.DataFrame:
@@ -632,7 +698,8 @@ def _record(out: dict, res: dict) -> Path:
                          "capital_adr_sizing": "10 tries, 2016-2023 (prior-tries)",
                          "the_entry": "tested by the old project on 2016-2023 (L19b's referee rows)"},
         "same_mondays_as_the_plain_run": out.get("same_mondays"),
-        "code_sha256": trials.code_sha256([Path(MP.__file__), Path(__file__), Path(R.__file__)]),
+        "code_sha256": trials.code_sha256([Path(MP.__file__), Path(__file__), Path(R.__file__),
+                                           Path(__file__).with_name("rerun.py")]),
     }
     result = {
         "flat_0.01_lot_a_position": {"total": float(ts.frame["net_inr"].sum()),
@@ -648,6 +715,20 @@ def _record(out: dict, res: dict) -> Path:
     if st.key == MAIN:
         result["version_1"]["real_order"] = {**result["version_1"]["real_order"], "years": out["years"],
                                              "facts": {k: v for k, v in out["facts"].items() if k != "dropped_frame"}}
+        ag = out.get("again")
+        settings["found_again"] = (
+            NOTES + " section 3c point 7: in the real order of version 1, after each stop-out the hedging tester (L19b's "
+            "set-up for Type 1, machine.money.rerun.Type1Hedging; its replay from the start = L19b's recorded trades, "
+            "leg by leg) runs again on the signals known after that minute, and the plan runs again on the new list, "
+            "until no new stop-out comes" if ag is not None else "not made again in this run")
+        if ag is not None:
+            sig = ag["ts"].frame[["signal", "open", "close", "net_inr", "low_inr", "need_inr"]]
+            result["found_again"] = {
+                "rounds": ag["rounds"], "real_order": ag["head"], "years": ag["years"],
+                "trades": len(ag["ts"]), "new_signals": ag["new_signals"],
+                "replays": out.get("again_replays", []),
+                "still_open_at_the_end": len(ag["still"]),
+                "trades_sha256": trials.sha256_of(R._rounded(sig, 6).astype(str).to_dict("list"))}
     return trials.record(
         kind=KIND, idea_id=st.entry, version_id=st.version, parent_idea=None, settings=settings, data=out["data"],
         result=R._plain(result),
@@ -696,6 +777,38 @@ def _lot_range(row) -> str:
     if not used:
         return "-"
     return f"{used[0] * 0.01:.2f}" if len(used) == 1 else f"{used[0] * 0.01:.2f} to {used[-1] * 0.01:.2f}"
+
+
+def _each(refills) -> str:
+    """The size of each refill, when there was more than one ("₹20,000 each time" when they are all the same). A
+    blow-up that got nothing (the reserve was empty: the plan stopped there) is said on its own."""
+    inr = _inr()
+    got = [x for x in refills if round(x) > 0]
+    empty = "; nothing at the last one: the reserve was empty" if len(got) < len(refills) else ""
+    if len(got) < 2:
+        return f" ({empty[2:]})" if empty else ""
+    lo, hi = min(got), max(got)
+    each = f"{inr(lo)} each time" if round(lo) == round(hi) else f"{inr(lo)} to {inr(hi)} each time"
+    return f" ({each}{empty})"
+
+
+def _reserve_words(head: dict) -> str:
+    inr = _inr()
+    return (f"ran out in {head['reserve_used_up']}" if head["reserve_used_up"]
+            else f"{inr(head['reserve_end'])} left")
+
+
+def again_facts(ag: dict) -> dict:
+    """What the report says about Type 1's real order made again after each stop-out (rerun.made_again). Only the
+    trades the plan TOOK count (after the reserve is used up, no trade is taken); a trade the broker closed counts the
+    positions it had opened by then (rerun.cut)."""
+    one, f, g = ag["one"], ag["ts"].frame, ag["trace"]
+    taken = f.iloc[g["trade"].to_numpy(int)]
+    refills = [float(e["money_in_out"]) for e in one.events if e["what"] == "blow-up"]
+    return {"head": ag["head"], "dbl_days": one.dbl_days, "years": ag["years"], "refills": refills,
+            "worst": min(ag["years"], key=lambda r: r["result"]), "trades": len(taken),
+            "positions": int(taken["positions"].sum()), "new": int(taken["signal"].isin(ag["new_signals"]).sum()),
+            "not_taken": len(f) - len(taken), "rounds": len(ag["rounds"])}
 
 
 def _row(out: dict, name: str) -> dict:
@@ -757,22 +870,55 @@ def report_md(out: dict) -> str:
         + ("the account did not double every 7–8 days.**" if slow
            else f"the middle double took {h['days_mid']:.0f} days.**"))
     add("")
-    add(f"| | the real order, {FIRST}–{LAST} |")
-    add("|---|---|")
-    add(f"| your {inr(start)} | became **{inr(h['your_money_end'])}** ({signed(h['result'])}) |")
-    add(f"| doubles | **{h['doubles']} in {ny} years**"
-        + (f": after {days_list(one.dbl_days)} |" if len(one.dbl_days) else " |"))
-    add(f"| blow-ups | **{h['blowups']} in {ny} years**, about {h['blowups'] / ny:.1f} a year (you accept "
-        f"{HIS_BLOWUPS[0]} to {HIS_BLOWUPS[1]}). In **{h['stopouts']}** of them the broker closed the trade at ₹0 "
-        f"while it was still open |")
-    add(f"| taken out | {inr(h['out'])} |")
-    each = (f" ({inr(min(fx['refills']))} to {inr(max(fx['refills']))} each time)" if len(fx["refills"]) > 1 else "")
-    add(f"| added back after blow-ups | {inr(h['added'])}{each} |")
-    add(f"| the worst year | {worst_year['year']}: {signed(worst_year['result'])} ({worst_year['blowups']} "
-        f"blow-ups, {worst_year['doubles']} doubles) |")
-    add(f"| trades | {fx['trades']} in {ny} years ({fx['positions']} positions). A trade stayed open "
-        f"{_days(fx['days_mid'])} in the middle, {_days(fx['days_max'])} at most |")
+    ag = out.get("again")
+    two = bool(ag and ag["rounds"])
+    gx = again_facts(ag) if two else None
+
+    def cells(first: str, second) -> str:
+        return f"| {first} |" + (f" {second} |" if two else "")
+
+    add(f"| | the real order, {FIRST}–{LAST} |" + (" the same, with your trades found again after each stop-out |"
+                                                   if two else ""))
+    add("|---|---|" + ("---|" if two else ""))
+    add(cells(f"your {inr(start)} | became **{inr(h['your_money_end'])}** ({signed(h['result'])})",
+              gx and f"became **{inr(gx['head']['your_money_end'])}** ({signed(gx['head']['result'])})"))
+    add(cells(f"doubles | **{h['doubles']} in {ny} years**" + (f": after {days_list(one.dbl_days)}"
+                                                              if len(one.dbl_days) else ""),
+              gx and (f"**{gx['head']['doubles']} in {ny} years**" + (f": after {days_list(gx['dbl_days'])}"
+                                                                     if len(gx["dbl_days"]) else ""))))
+    add(cells(f"blow-ups | **{h['blowups']} in {ny} years**, about {h['blowups'] / ny:.1f} a year (you accept "
+              f"{HIS_BLOWUPS[0]} to {HIS_BLOWUPS[1]}). In **{h['stopouts']}** of them the broker closed the trade at "
+              f"₹0 while it was still open",
+              gx and ((f"**{gx['head']['blowups']}**, then the reserve was empty ({gx['head']['reserve_used_up']}) "
+                       f"and the plan stopped" if gx["head"]["reserve_used_up"] else
+                       f"**{gx['head']['blowups']} in {ny} years**, about {gx['head']['blowups'] / ny:.1f} a year")
+                      + f". In **{gx['head']['stopouts']}** of them the broker closed the trade at ₹0")))
+    add(cells(f"taken out | {inr(h['out'])}", gx and inr(gx["head"]["out"])))
+    add(cells(f"added back after blow-ups | {inr(h['added'])}{_each(fx['refills'])}",
+              gx and f"{inr(gx['head']['added'])}{_each(gx['refills'])}"))
+    add(cells(f"the reserve ({inr(plan.reserve_size)} at the start) | {_reserve_words(h)}",
+              gx and _reserve_words(gx["head"])))
+    add(cells(f"the worst year | {worst_year['year']}: {signed(worst_year['result'])} ({worst_year['blowups']} "
+              f"blow-ups, {worst_year['doubles']} doubles)",
+              gx and f"{gx['worst']['year']}: {signed(gx['worst']['result'])} ({gx['worst']['blowups']} blow-ups, "
+                     f"{gx['worst']['doubles']} doubles)"))
+    add(cells(f"trades | {fx['trades']} in {ny} years ({fx['positions']} positions). A trade stayed open "
+              f"{_days(fx['days_mid'])} in the middle, {_days(fx['days_max'])} at most",
+              gx and (f"{gx['trades']} ({gx['positions']} positions); {gx['new']} of them are not in the first list"
+                      + (f". {gx['not_taken']} more came after the reserve was empty: not taken" if gx["not_taken"]
+                         else ""))))
     add("")
+    if two:
+        add(f"**The second column.** L19b found your trades as if no trade was ever closed by the broker. After a "
+            f"stop-out, the trades you would have taken in that time are missing from its list, and the account only "
+            f"waits ({fx['cut_days']:.0f} days in all). So your hedging was run again from the minute of each "
+            f"stop-out ({len(ag['rounds'])} times): the same entries, your management, the same settings. Only the "
+            f"real order can be made again: the {n:,} other orders and the one-change rows below use the first "
+            f"column's trades.")
+        add("")
+    elif fx["stopped"] and ag is None:
+        add("**Not made again in this run:** the trades after each stop-out (a look only).")
+        add("")
     worse, better = fx["orders_worse"] / n, fx["orders_better"] / n
     kind = "a lucky one" if worse >= 0.8 else ("an unlucky one" if better >= 0.8 else "an ordinary one")
     add(f"**The real order was {kind}.** The same months in {n:,} other orders: {fx['orders_worse']:,} ended with "
@@ -797,14 +943,21 @@ def report_md(out: dict) -> str:
     add(f"- The {fx['own_end']} trades that ended by themselves {'made' if fx['own_end_inr'] >= 0 else 'lost'} "
         f"{inr(abs(fx['own_end_inr']))} at the plan's lots.")
     if fx["under"]:
-        add(f"- In {fx['under']} more trades the account went below the money needed for 0.01 lot but stayed above "
-            f"₹0, and the trade went on to its end.")
+        add(f"- In {fx['under']} more {'trade' if fx['under'] == 1 else 'trades'} the account went below the money "
+            f"needed for 0.01 lot but stayed above ₹0, and the trade went on to its end.")
     add("")
     add("![The account in the real order](money-plan-hedged/account.jpg)")
     add("")
+    marks = {e["what"]: 0 for e in one.events}
+    for e in one.events:
+        if e["what"] != "blow-up" or "broker" not in e["why"]:
+            marks[e["what"]] += 1
     add("How to read it: the black line is the money in the account, at its lowest point in each hour. The red line is "
-        "the money needed for 0.01 lot. A red cross: the broker closed a trade at ₹0. A red mark: a blow-up after a "
-        "trade, and the reserve fills the account back to ₹20,000. A green mark: a double, the profit is taken out.")
+        "the money needed for 0.01 lot."
+        + (" A red cross: the broker closed a trade at ₹0." if marks.get("stop-out") else "")
+        + (" A red mark: a blow-up after a trade, and the reserve fills the account back to ₹20,000."
+           if marks.get("blow-up") else "")
+        + (" A green mark: a double, the profit is taken out." if marks.get("a double") else ""))
     add("")
 
     # ---------------------------------------------------------------- inside a hedged trade
@@ -826,13 +979,16 @@ def report_md(out: dict) -> str:
     for r in tr.itertuples():
         days = r.ended_d - r.opened_d
         how = "the broker closed it at ₹0" if r.stopped_out else "by itself"
-        add(f"| {pd.Timestamp(r.open):%d %b %Y} | {days:.0f} | {r.positions} | {r.lots:.2f} | "
+        add(f"| {pd.Timestamp(r.open):%d %b %Y} | {days:.0f} | {r.positions_in_the_plan} | {r.lots:.2f} | "
             f"{inr(r.account_at_open)} | {inr(r.account_lowest_inside)} | {how} | {signed(r.inr)} |")
     add("")
     if fx["stopped"]:
+        add("- A trade the broker closed counts the positions it had opened by then.")
+    if fx["stopped"]:
         add(f"- After the broker closed a trade, the account waited for your next trade in L19b's list. L19b made the "
             f"list without these stop-outs, so the trades that would have come in between are not in it: "
-            f"{fx['cut_days']:.0f} days of waiting in all.")
+            f"{fx['cut_days']:.0f} days of waiting in all."
+            + (" The second column of the answer finds those trades again." if two else ""))
     add("- ₹0 is taken as the broker's line. The real broker closes a little above ₹0 (at a margin level). With "
         "hedged positions that is close to ₹0.")
     if fx["dropped"]:
@@ -898,7 +1054,7 @@ def report_md(out: dict) -> str:
     add("|---|---:|---:|")
     add(f"| your {inr(start)} ends at | {inr(start + a['result_mid'])} ({signed(a['result_mid'])}) | "
         f"{inr(start + a['result_bad'])} or less ({signed(a['result_bad'])}) |")
-    add(f"| taken out | {inr(a['out_mid'])} | {inr(a['out_bad'])} or less |")
+    add(f"| taken out | {inr(a['out_mid'])} | {inr(a['out_bad'])}{' or less' if round(a['out_bad']) > 0 else ''} |")
     add(f"| added back after blow-ups | {inr(a['added_mid'])} | {inr(a['added_bad'])} or more |")
     add(f"| blow-ups | {a['blowups_mid']:.0f} | {a['blowups_bad']:.0f} or more |")
     add(f"| of them: the broker closed a trade at ₹0 | {a['stopouts_mid']:.0f} | {a['stopouts_bad']:.0f} or more |")
@@ -998,7 +1154,12 @@ def report_md(out: dict) -> str:
     add("- **Trades that make money after the ₹40 cost.** These years cannot give them: every entry type here is "
         "already seen. Only new prices can (the forward test, L17c).")
     add("- **The ₹0 line.** The real broker closes a little above ₹0, so a little sooner.")
-    if fx["stopped"]:
+    if fx["stopped"] and two:
+        add(f"- **The trades after a trade the broker closed.** In L19b's list the account waited "
+            f"{fx['cut_days']:.0f} days for its next trade. With your trades found again from each stop-out, your "
+            f"money ends at {inr(gx['head']['your_money_end'])} instead of {inr(h['your_money_end'])} (the answer's "
+            f"second column). Only the real order can be made again.")
+    elif fx["stopped"]:
         add(f"- **The trades after a trade the broker closed.** The account waited {fx['cut_days']:.0f} days for the "
             f"next trade in L19b's list.")
     add("- **One entry type at a time.** Your full way takes every entry type in one account (L19d).")
@@ -1021,12 +1182,16 @@ def report_md(out: dict) -> str:
     add("- every entry type in one table: `plan/work/money-plan-hedged/streams.csv`")
     add("- the lowest point inside every trade: `plan/work/money-plan-hedged/dips.csv`")
     add(f"- the {len(out['needs'])} Monday numbers: `plan/work/money-plan-hedged/mondays.csv`")
+    if two:
+        add("- the answer's second column: every trade `plan/work/money-plan-hedged/trades-found-again.csv`, every "
+            "blow-up and stop-out `events-found-again.csv`, each stop-out and what came after it "
+            "`found-again-rounds.csv`, the trades found again leg by leg `type1-found-again-stories.jsonl`")
     rec = main["recorded"]
     if rec:
         add(f"- the trades are L19b's recorded ones: Type 1 {rec['trades']} trades, {signed(rec['net_inr'])} at 0.01 "
             f"lot a position (trial `{rec['trial']}`), and so for every entry type")
-    add("- the code: `machine/money/hedged.py`, `machine/money/plan.py`; the tests: `tests/test_money_hedged.py`, "
-        "`tests/test_money_plan.py`")
+    add("- the code: `machine/money/hedged.py`, `machine/money/plan.py`, `machine/money/rerun.py`; the tests: "
+        "`tests/test_money_hedged.py`, `tests/test_money_plan.py`, `tests/test_money_rerun.py`")
     add("")
     return "\n".join(L)
 
@@ -1124,6 +1289,16 @@ def _two_readings(out: dict, add) -> None:
         f"full account would reach ₹0 inside {zero} of them.")
     add(f"- The reserve kept every trade alive (row 10): the middle order {signed(mid_r10)}, against "
         f"{signed(mid_v1)} for the plan.")
+    ag = out.get("again")
+    if ag and ag["rounds"]:
+        g = ag["head"]
+        if g["reserve_used_up"]:
+            add(f"- With your trades found again after each stop-out (the real order only): the broker closed a trade "
+                f"{g['stopouts']} times, and then the reserve was empty ({g['reserve_used_up']}): no trade after that.")
+        else:
+            add(f"- With your trades found again after each stop-out (the real order only): the broker closed a trade "
+                f"{g['stopouts']} times in {len(out['years'])} years, and {inr(g['reserve_end'])} of the reserve was "
+                f"left.")
     add("")
     add("**The numbers for reading 2:**")
     add(f"- With no plan at all (0.01 lot a position), the Type 1 trades {'lose' if fx['flat_total'] < 0 else 'make'} "
@@ -1148,10 +1323,15 @@ def _two_readings(out: dict, add) -> None:
     add("")
     add("**Two things the test does say about the plan itself:**")
     real_days = out["main"]["rows"][0]["one"].dbl_days
+    ag = out.get("again")
+    found = ag["one"].dbl_days if ag and ag["rounds"] else np.zeros(0)
+    quick = int((real_days <= HIS_DAYS).sum() + (found <= HIS_DAYS).sum()) + fx["doubles_in_his_days"]
     fastest = int(round(float(np.min(real_days)))) if len(real_days) else None
-    add("- \"Doubles in 7–8 days\" did not happen. "
+    add("- \"Doubles in 7–8 days\" " + ("did not happen. " if quick == 0 else f"came {quick} times in all. ")
         + (f"The fastest double in the real order took {fastest} days. " if fastest else "No double in the real "
            "order. ")
+        + (f"With your trades found again: {len(found)} {'double' if len(found) == 1 else 'doubles'}, after "
+           f"{days_list(found)}. " if len(found) else "")
         + f"In the {n:,} orders, {fx['doubles_in_his_days']:,} of {fx['doubles_all']:,} doubles came within "
           f"{HIS_DAYS} days. (Already seen by the old project.)")
     add(f"- For your hedging, 2 × the Monday ADR was not enough room in {deep} of {len(t1)} Type 1 trades.")

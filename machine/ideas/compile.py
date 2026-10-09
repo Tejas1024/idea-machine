@@ -101,6 +101,9 @@ class MissingBlockError(CompileError):
 # is the old name of his FIXED rule what_a_session_high_or_low_is, and a form that writes it is refused.)
 # L19b built the second gap of a move (#124: "second is only when it is VERY STRONG ..., or else it should wait for
 # the first"): settings which_gap_of_the_move = 'second' with the_second_gap_needs_the_day (the step gap_of_the_move).
+# L6-new (2 Oct, idea #4 "sell when price breaks below the green ADR zone") built the step adr_zone_break: a 5-minute
+# CLOSE past his ADR zone the trade's way (#76). premium_discount is price AT the zone; a talker without this step had
+# written "breaks below" as "at the zone" (a dry run, 2 Oct) - a different trade, and the old band filter's key.
 PLANNED = {
     "trendline": "L6b.1 built it under other names - the form must name one: kinds ['trendline'] (a sweep of a "
                  "trendline, a target on one), the step trendline_touch (his Type 2), the steps triangle / wedge / "
@@ -719,8 +722,9 @@ class BreakParams(_P):
 class BreakOfStructure(Block):
     name = "break_of_structure"
     means = ("price breaks structure the trade's way: a wick through his order block - for a sell, the most recent "
-             "RED candle in the rise; a wick below its low is the break (#56-#60). extreme = the highest price from "
-             "the step before it to the break (a sell) - the grab's extreme")
+             "RED candle in the rise; a wick below the LOWEST wick from it to the candle that went above its high is "
+             "the break (#56-#60; his 7 Oct 2026 words: the green candle right after the red one counts when it wicks "
+             "lower). extreme = the highest price from the step before it to the break (a sell) - the grab's extreme")
     uses = ("structure.breaks", "structure.BreakSearch")
     can_start = True
     can_resume = True                          # the grab kept going: searched again from the new extreme (_Regrab)
@@ -1079,6 +1083,53 @@ class PremiumDiscount(Block):
             return f"the price is not at the {where} ADR zone (it is at {got})"
         ev = self._event(run, p, i, px, None)
         return {**ev, "known_at": after}
+
+
+# ---- L6-new: the break of his ADR zone (idea #4; strategy.md section 7, #76) ------------------------------------------
+class AdrZoneBreak(Block):
+    name = "adr_zone_break"
+    means = ("price BREAKS OUT of his ADR zone the trade's way (strategy.md section 7; #76 'if it breaks the lower range "
+             "of ADR, lower zone, it will go further low'): a sell = a 5-minute candle CLOSES below the green (bottom) "
+             "zone's bottom, a buy = it closes above the red (top) zone's top - by at least settings "
+             "adr_break_beyond_adr of a day's range (0 = any close beyond). A wick is never a break. Not the same as "
+             "premium_discount, which is price AT a zone (a turn there). As the first step: each new close beyond "
+             "(a run of closes beyond counts once a day); later: the first one after the step before. Known at that "
+             "candle's close. It does NOT replace his grab: an entry gap after it still needs his liquidity taken (a "
+             "sweep step) and his break of structure (rules.py which_gap_is_the_entry_gap, #61, #62, #131; #76 itself: "
+             "'if it took the liquidity and fair value is good') - his Type 1 after the zone break, so its hedge is "
+             "Type 1's (the grab's extreme)")
+    uses = ("adr.adr_bars", "premium_discount.breaks")
+    can_start = True
+    tfs = ("5m",)
+    gives_ = ("known_at", "bar", "price", "zone_lo", "zone_hi")
+
+    @staticmethod
+    def _table(run: _Run) -> pd.DataFrame:
+        side = "bottom" if run.sell else "top"
+        return run.market.cached(("adr_breaks", side), run.fp, lambda: PD.breaks(run.market.bars("5m"), "5m", side))
+
+    @staticmethod
+    def _event(r) -> dict:
+        return {"known_at": r.known_at, "bar": r.bar, "price": float(r.price), "zone_lo": float(r.zone_lo),
+                "zone_hi": float(r.zone_hi)}
+
+    def start(self, run, step, p):
+        for r in self._table(run).itertuples():
+            yield self._event(r)
+
+    def next(self, run, step, p, facts, after, deadline):
+        t = self._table(run)
+        idx = run.market.bars("5m").index
+        start = run.market.opens_from("5m", after)
+        if start >= len(idx):
+            return "no candle after the step before"
+        rows = t[pd.DatetimeIndex(t["bar"]) >= idx[start]]
+        if deadline is not None:
+            rows = rows[pd.DatetimeIndex(rows["known_at"]) <= pd.Timestamp(deadline)]
+        if rows.empty:
+            where = "below the green" if run.sell else "above the red"
+            return f"no 5-minute close {where} ADR zone within the max wait"
+        return self._event(next(rows.itertuples()))
 
 
 # ---- L6b.3: his hammer (#115) ----------------------------------------------------------------------------------------
@@ -1580,9 +1631,9 @@ class OneMinute(Block):
 
 BLOCKS: dict[str, Block] = {b.name: b for b in (EqualLevels(), Sweep(), LevelWaiting(), BreakOfStructure(),
                                                   GapOfTheMove(), ComesBackTo(), FibMove(), BiasCheck(),
-                                                  PremiumDiscount(), HammerCheck(), AllTimeHigh(), TrendlineTouch(),
-                                                  Triangle(), FalseBreakout(), Wedge(), ZoneEntry(), ZoneBreak(),
-                                                  ZoneCheck(), OneMinute())}
+                                                  PremiumDiscount(), AdrZoneBreak(), HammerCheck(), AllTimeHigh(),
+                                                  TrendlineTouch(), Triangle(), FalseBreakout(), Wedge(), ZoneEntry(),
+                                                  ZoneBreak(), ZoneCheck(), OneMinute())}
 
 
 # ================================================================================ do-not-enter rules and filters
@@ -1676,6 +1727,33 @@ class TargetReachedFirst(_Rule):
              "The tester does it (Signal.cancel_at)")
     uses = ("tester: Signal.cancel_at",)
     limit_only = True
+
+
+class ComesBackIntoAnotherGapFirst(_Rule):
+    name = "price_comes_back_into_another_gap_first"
+    means = ("his #68 (strategy-understanding §65e; his 7 Oct 2026 words on idea #4's setup 1: 'if you would have "
+             "entered that in the first time only where it has reached the second fvg in that moment if it reached the "
+             "first fvg that's the good entry'): the order at the gap is good only on price's FIRST visit back into "
+             "the gaps the setup's move left - every 5-minute gap the trade's way from the sweep candle to one candle "
+             "after the break (the old engine's arming candle) or the entry gap, whichever is later. If price comes "
+             "back into one of them and turns away without reaching the entry, the order is cancelled: spent. Only "
+             "for a limit at a gap_of_the_move step. The tester does it (Signal.first_visit_from / first_visit_to, "
+             "fvg.first_visit)")
+    uses = ("tester: Signal.first_visit_from / first_visit_to", "fvg.setup_gaps", "fvg.first_visit")
+    limit_only = True
+
+    @staticmethod
+    def window(run: _Run, params: dict, facts: dict) -> dict | str:
+        """The two times the tester needs, from what the gap step found (all known when the order is made)."""
+        gid = REF.fullmatch(run.form.entry.at).group(1)
+        step = next(s for s in run.form.steps if s.id == gid)
+        if step.block != "gap_of_the_move":
+            return "the entry is not at a gap_of_the_move step"
+        p = params[gid]
+        sweep = facts[p.sweep]
+        frm = pd.Timestamp(sweep.get("gap_from", sweep["bar"]))
+        last = max(pd.Timestamp(facts[gid]["bar"]), pd.Timestamp(facts[p.move]["bar"]) + pd.Timedelta(minutes=5))
+        return {"first_visit_from": frm, "first_visit_to": last + pd.Timedelta(minutes=5)}
 
 
 class StopTooNear(_Rule):
@@ -1924,7 +2002,8 @@ class UnfilledGapPastHedge(_Rule):
 
 
 DO_NOT_ENTER: dict[str, _Rule] = {r.name: r for r in (EntryAlreadyReached(), TargetAlreadyReached(),
-                                                        TargetReachedFirst(), StopTooNear(), GrabRanTooFar(),
+                                                        TargetReachedFirst(), ComesBackIntoAnotherGapFirst(),
+                                                        StopTooNear(), GrabRanTooFar(),
                                                         PremiumDiscountRule(), NoSellAtTheAllTimeHigh(),
                                                         LineInPath(), UnfilledGapPastHedge())}
 FILTERS: dict[str, _Rule] = {r.name: r for r in (SessionFilter(), BiasFilter(), HigherTimeframeFilter())}
@@ -2307,6 +2386,10 @@ def _check(f: Idea, market: Market) -> tuple[dict[str, Any], list[str]]:
             where = f"{group}[{k}] '{r.name}'"
             if rule.limit_only and f.entry.how != "limit":
                 problems.append(f"{where}: only for a limit entry (a next_open entry fills at once - nothing waits)")
+            elif r.name == ComesBackIntoAnotherGapFirst.name and \
+                    next((s.block for s in f.steps if s.id == REF.fullmatch(f.entry.at).group(1)), None) \
+                    != "gap_of_the_move":
+                problems.append(f"{where}: only for a limit at a gap_of_the_move step (the setup's gaps, #68)")
             try:
                 p = rule.Params.model_validate(r.params)
             except ValidationError as err:
@@ -2412,6 +2495,13 @@ def _walk(f: Idea, market: Market, params: dict, fp: str, vid: str, trace: bool 
                     after = searched_from[step.id]
                     dl = run.deadline(step.tf, after, step.max_wait_bars)
                     at = got.at
+                    # a new grab: a 1-minute check after it is a FIRST check again - "only the lines known at the
+                    # first check" (settings one_minute_new_lines_after_a_take) is for the gap right after a take, not
+                    # for a grab that went on for hours (his F04, #111: a line against the entry means wait). Found
+                    # 7 Oct 2026: with his break level the 17:55 buy he criticised came back through such a grab.
+                    for sid, fx in list(facts.items()):
+                        if isinstance(fx, dict) and "first_check" in fx:
+                            facts[sid] = {a: b for a, b in fx.items() if a != "first_check"}
                     got = BLOCKS[step.block].next(run, step, params[step.id], facts, after, dl, resume=at)
                     regrabs += 1
                     if rec is not None:
@@ -2593,6 +2683,12 @@ def _signal(run: _Run, params: dict, facts: dict, t: pd.Timestamp) -> dict | tup
         r = DO_NOT_ENTER[rule.name]
         if rule.name == "target_reached_first":
             out["cancel_at"] = max(targets) if sell else min(targets)
+            continue
+        if rule.name == ComesBackIntoAnotherGapFirst.name:
+            got = ComesBackIntoAnotherGapFirst.window(run, params, facts)
+            if isinstance(got, str):
+                return (f"do not enter: {rule.name}", got)
+            out.update(got)
             continue
         if hasattr(r, "retarget"):
             continue

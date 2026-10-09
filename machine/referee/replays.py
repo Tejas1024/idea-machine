@@ -84,7 +84,7 @@ def pooled(frames: list[pd.DataFrame]) -> pd.DataFrame:
 
 # A setup "had its full chance" when nothing but the market decided whether price came back to its level: it was not
 # skipped (a trade was already on), not cancelled by a newer setup, and the test did not end while it waited.
-FULL_CHANCE_MISSED = ("expired", "target reached first")
+FULL_CHANCE_MISSED = ("expired", "target reached first", engine.FIRST_VISIT_SPENT)   # spent: the market decided (#68)
 
 
 def path_counts(reps: list[engine.Replay]) -> dict:

@@ -286,6 +286,8 @@ def steps(pool: pd.DataFrame, q: Query) -> pd.DataFrame:
         if _known(s.get(c)):
             out[c] = (pool[c] - float(s[c])).abs() / STEPS[c][0]
     for side, part in (("up", "level_up"), ("dn", "level_dn")):
+        if f"{side}_level_kind" not in s:              # not measured (a live question has no levels yet): left out.
+            continue                                   # A kind of None IS measured: no level alive = far (LEVEL_FAR)
         mine = _level_adr(pd.Series([s.get(f"{side}_level_kind")]), pd.Series([s.get(f"{side}_level_adr")],
                                                                               dtype=float)).iat[0]
         if _known(mine):

@@ -56,7 +56,7 @@ git clone https://github.com/Tejas1024/idea-machine.git
 cd idea-machine
 python -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt        # Windows: .venv\Scripts\python
-.venv/bin/python -m pytest -q                               # a fresh clone, 1 Oct 2026: 1062 passed, 333 skipped
+.venv/bin/python -m pytest -q                               # a fresh clone, 10 Oct 2026: 1417 passed, 420 skipped
 .venv/bin/python -m machine.demo                            # every step on made-up data, about 2 minutes
 .venv/bin/python -m machine.demo --full                     # + the referee's real answer and the report, about 20 minutes
 ```
@@ -65,9 +65,9 @@ python -m venv .venv
 
 *The demo, recorded (`python -m machine.demo.record docs/demo.gif`; the script: [plan/work/demo-script.md](plan/work/demo-script.md)).*
 
-The skipped tests need files that are not in this copy, and `pytest -rs` names each one: 235 need private files
-(140 of them use the trader's first idea as their fixture), and 98 need the real prices, the news calendar, MT5 or
-the search model. The demo uses only `tests/data/demo/`: made-up notes, a made-up idea, a talker answer written by hand in
+The skipped tests need files that are not in this copy, and `pytest -rs` names each one: 306 need private files
+(161 of them use the trader's first idea as their fixture), and 114 need the real prices, the news calendar, MT5,
+PyTorch's image package (`requirements-eyes.txt`) or the search model. The demo uses only `tests/data/demo/`: made-up notes, a made-up idea, a talker answer written by hand in
 the exact shape Claude returns (so no API key is needed), and a random walk of 3 million 1-minute bars with **no
 edge in it**, so the honest answer is *chance*. What it prints (abridged, a real run):
 
@@ -135,23 +135,61 @@ Every year loses about the ₹40 cost a trade, because there is nothing to find.
 
 ## Results so far (on real gold, 2016–2023)
 
-Every number below comes from a trial file in the private repo. There is one file per test run (119 so far),
-so every try is counted.
+Every number below comes from a trial file in the private repo. There is one file per test run (236 so far,
+10 Oct 2026), so every try is counted. Money is in rupees at 0.01 lot, after the ₹40 cost per position.
+
+**The trader's ideas.** Each one went through the same path: his words → a checked form → 3 example setups he
+confirmed on a picture → up to 20 versions on 2016–2020 → one version chosen → 2021–2023 opened once.
+
+| What was tested | Tries | Answer | The numbers |
+|---|---|---|---|
+| **Idea #1**, the trader's usual setup (grab → break → first gap, 7 steps) | 18 of 20 versions on 2016–2020; check years opened once | **chance** | 2021–2023: −₹119 a trade on 260 trades, every year lost, worst 2021 −₹12,636 · worse than 196 of 200 random-entry runs and all 8 fake levels |
+| Idea #1 with his own hedging (the hedging tester) | 1 version, 2016–2020, his entries vs 200 random | **no better than random** | his entries −₹12,244 (15 trades, 478 positions; +₹6,876 before cost) · random entries with the same hedging −₹13,352 · his entries beat 100, 95, 102, 131, 166 of 200 by year · idea #1 dropped by the rule written before the test |
+| **Idea #2**, sell or buy at the edge of the day's average-range zone, with a gap | 7 of 20 versions, planned by the research agent | **chance** | 2021–2023: −₹33 a trade on 262 trades, worst 2022 −₹8,318 · beat 67 of 100 random-entry runs (needs 95) · −₹80 a trade without its best 3 |
+| **Idea #3**, sell when the London high is taken, then the break and the first gap | 8 of 20 versions | **chance** | 2021–2023: −₹6,435 a year, worst 2022 −₹14,304 (154 trades) · with his hedging (2016–2020, the same version): 15 trades −₹13,985, random entries −₹13,216, his beat 44 of 200 |
+| **Idea #4**, a break out of the day's average-range zone, only when the hour and the day agree | 8 of 20 versions | **not enough trades to tell** | 9 trades in 2021–2023 (−₹219 a year): a real ₹100-a-trade edge would be caught 0 times in 100 with so few |
+| **Idea #5**, grab + gap only in the New York session: **the first idea that ran from a Telegram message to its report with no manual step** except the trader's "yes" to its picture | 9 of 20 versions | **chance** | 2021–2023: 279 trades, −₹3,009 a year, worst 2021 −₹8,353 (91 trades), 2023 +₹3,034 · beat 133 of 200 random entries · with his hedging: 19 trades −₹11,523, random −₹11,221, his beat 89 of 200 |
+| **His 6 entry types** (strategy notes section 9), each with a plain stop and with his hedging, vs 200 random runs | 2016–2020; all tried by an older project before | **chance — needs fresh years** (all 6) | his main entry with his hedging −₹12,689 (15 trades) vs random −₹13,729 · with a plain stop −₹89,826 (2,844 trades) vs −₹100,862 |
+| **His whole strategy**: his 3 settled entry types together, one trade at a time, his hedging | 9 versions | **chance — needs fresh years** | 2021–2023: 8 trades −₹13,792 · 2016–2020: 15 trades −₹10,113 |
+| **His money plan** (account size from the Monday average range, his top-up rule) on his hedged trades | 1 run, rules fixed before it | **lost** | ₹200,000 became ₹100,000 over 2016–2020 · 5 accounts wiped, 0 doubles (he expected a double every 7–8 days) |
+
+**His beliefs about gold, his news memory and his eye.**
+
+| What was tested | Tries | Answer | The numbers |
+|---|---|---|---|
+| **26 of the trader's beliefs** about gold (from 21 rows of his notes) | 34 versions; check years opened once each | **2 true, 24 not shown** | true: a New York hour moves about 1.8× a London hour (every year) · true but tiny: his 3-candle gaps pull price back (+0.4 in 100, every year) · 24: chance, needs fresh years, or too few |
+| **How gold reacts to US news** (6,624 release minutes, 2016–2023, 1-minute bars) | his news beliefs, each against the same weekday and hour with no news | **2 hold, his news trap does not** | the first hour after red news is bigger than a quiet hour 55–75 times in 100 · after a big surprise gold moves the news way at 15 minutes 68 times in 100 (a coin flip by the close) · his "news trap": the side WITH the news breaks first 3 times in 4, the opposite of the belief |
+| **His eye for a "strong zone"**: two models of his yes / no on 201 charts he answered | split by time (2018, 2019, 2020 each guessed by models that learned only from the years before); 120 held out; plan pushed before the one scoring | **as good as his written rule, not better** | LightGBM on 14 numbers 79% (72–85%) · a PyTorch ResNet18 on the picture 78% (71–83%) · his own written rule 79% · always "no" 70% · both beat always "no" beyond luck; neither beats his rule |
+| A LightGBM model on idea #1's trades (purged walk-forward 2018–2020, SHAP) | no filter made, no try spent | **nothing found** | its picks −₹18 a trade vs the rest +₹29; luck 82 in 100 · its own exam: it needs about ₹300 a trade of edge to see one |
+
+**The machine's own exams.**
 
 | What was tested | Tries | Answer | The numbers |
 |---|---|---|---|
 | **The referee itself** on made-up trades | 100 ideas × 20 versions per kind | passes its own exam | no edge: "works" 0 of 100 · the hardest noise (exactly ₹0 after cost): about 5 in 100, the rate its luck test allows · a planted ₹100 edge caught 99%, ₹50 71% (300 trades) |
-| **Idea #1**, the trader's usual setup (grab → break → first gap, 7 steps) | 18 of 20 versions on 2016–2020; check years opened once | **chance** | 2021–2023: −₹119 a trade on 260 trades, every year lost, worst 2021 −₹12,636 · worse than 196 of 200 random-entry runs and all 8 fake levels |
-| Idea #1 with his own hedging (the hedging tester) | 1 version, 2016–2020, his entries vs 200 random | **no better than random** | his entries −₹12,244 (15 trades, 478 positions; +₹6,876 before cost) · random entries with the same hedging −₹13,352 · his entries beat 100, 95, 102, 131, 166 of 200 by year · idea #1 dropped by the rule written before the test |
-| A LightGBM model on idea #1's trades (purged walk-forward 2018–2020, SHAP) | no filter made, no try spent | **nothing found** | its picks −₹18 a trade vs the rest +₹29; luck 82 in 100 · its own exam: it needs about ₹300 a trade of edge to see one |
-| **26 of the trader's beliefs** about gold (from 21 rows of his notes) | 34 versions; check years opened once each | **2 true, 24 not shown** | true: a New York hour moves about 1.8× a London hour (every year) · true but tiny: his 3-candle gaps pull price back (+0.4 in 100, every year) · 24: chance, needs fresh years, or too few |
-| Idea #2 (ADR zones + a gap) | 7 versions planned by the research agent, saved before any run | **waiting** | money is shown only after the trader confirms 3 example setups · on made-up prices its first 3 versions → *chance* (the agent's noise exam) |
 | The talker (words → form), exam of 25 real idea messages | its 5th run, on an exam seen 4 times before | partly met | fields right 93% · unclear parts found 17 of 17 · not met: 1 invalid form, 5 questions not needed |
 | The search, exam of 40 questions | 1 clean run | partly met | ask-or-not right 38 of 40 · first citation right 19 of 30 (the mark was 27) |
 
 **The honest summary:** so far nothing the trader believed would make money has passed. That includes his main
-setup, with and without his hedging, and with a model trying to filter it. The machine said so in rupees, year by
-year. That is the machine working: its job is the truth, not a promise of profit.
+setup, five of his ideas, his six entry types, his whole strategy with his hedging, his money plan, and a model
+trying to filter his trades. The machine said so in rupees, year by year. Where his eye could be measured, a model
+learned it about as well as his own written rule. That is the machine working: its job is the truth, not a promise
+of profit.
+
+## It runs every day (since 4–5 Oct 2026)
+
+On the trader's PC, from the Windows Task Scheduler, with nothing to start by hand:
+
+- **The daily run** (`python -m machine.host daily`): keeps the day's prices sealed (the years after 2023 are never
+  used for testing), refreshes the caches, moves every idea on, records every run in MLflow, and sends one summary.
+- **A heartbeat every hour**: a missed beat (a power cut, the PC off) is found by the next one and reported with
+  Windows' own reason. A failed step alerts too: one failure was forced on purpose, and real power cuts set off the
+  missed-beat alert by themselves.
+- **Live news alerts** (`machine/live/`): 30 minutes before a big US release, what gold did the last 10 times; when
+  the number is out, the surprise, gold's first move, and the 10 past releases most like it (2016–2023 only, a
+  lookup, never a prediction). In the first full week: 9 alerts, all sent, 0 failures, through 4 power cuts.
+- **The forward test** (`machine/forward/`): an idea that can only be judged on new days gets its plan written and
+  locked by the machine before the first live bar; it is judged once, at the end. No idea has earned one yet.
 
 ## What the referee rejects, and why
 
@@ -182,7 +220,8 @@ The rules' text and SHA-256 fingerprint are in every referee trial file, and a t
 - **Language models in the loop:** the talker and the research planner are checked by code, but a check only refuses
   what it was written to see. The search's first-citation mark is not met yet (19 of 30).
 - **Made-up data here:** the real prices cannot be redistributed, so this repo shows the machinery, not the market.
-- **No real money.** Live alerts and paper trades come next; real money needs a legal check first.
+- **No real money.** Live alerts run every day; paper trades start only when an idea passes, or when a locked
+  forward plan says so. Real money needs a legal check first.
 
 ## The code
 
@@ -200,6 +239,12 @@ The rules' text and SHA-256 fingerprint are in every referee trial file, and a t
 | `machine/learner/` | condition tables, LightGBM + TreeSHAP, the pooled view |
 | `machine/news/`, `machine/beliefs/` | the news calendar, surprise and reaction; the trader's beliefs as numbers |
 | `machine/intake/`, `machine/telegram/` | one idea from a Telegram message to the report, step by step, resuming after a crash |
+| `machine/entries/`, `machine/strategy/` | his own entry types as idea forms; his whole strategy as one research family |
+| `machine/money/` | cost in rupees; his money plan replayed on his trades |
+| `machine/labels/`, `machine/eyes/` | his yes / no answers on zone charts; two models of his eye (LightGBM and a PyTorch ResNet18), scored once on held-out years |
+| `machine/live/`, `machine/forward/` | the live feed and news alerts; the forward-test plan, locked before the first live bar |
+| `machine/host/`, `machine/dashboard/` | the daily run, the heartbeat, MLflow; a read-only dashboard that hides every price digit |
+| `machine/charts/` | pictures drawn his way, and a check for each of his picture rules |
 | `machine/guards.py` | sealed years, check years, the cut-off-the-future test |
 | `machine/demo/` | `python -m machine.demo` |
 

@@ -10,6 +10,10 @@ A VERSION is a different rule. Only two kinds of change make one (section D; pla
                   "targets.<n>.ratio"                                          the target, times the stop distance
                   "settings.<name>"                                            a NUMBER the machine chose (settings.py
                                                                                status "test") - never one of his
+                  "exit.management.<name>"                                     his management's TEST rows (T12, L19c:
+                                                                               how the hedge and the target are looked
+                                                                               after) - a hedge only; the values and the
+                                                                               reasons: machine/tester/management.py
 and the readings of the idea's VERSION parts (unclear parts the machine tries; an ASK part is his answer, never a
 choice). Everything else is refused, and the refusal says why:
   - his fixed rules (machine/rules.py), under any name or old alias, anywhere in the path: his words (LEARNED #121);
@@ -48,6 +52,7 @@ from machine.ideas import compile as C
 from machine.ideas import store
 from machine.ideas.form import LOCKED_FROM, NO_LIMIT, STATES, TF, FormError, Idea, with_readings
 from machine.referee import prior, trials
+from machine.tester import management as MG
 
 TIMEFRAMES = typing.get_args(TF)
 SECTION_D = "plan/likhith.md section D"
@@ -109,13 +114,23 @@ def check_change(form: Idea, path: str, value: Any) -> str:
             raise Refused(f"'{path}': only a target that is a ratio of the stop distance has a ratio to change")
         _number(value, path, above=0.0)
         return "the target (dimension 10)"
+    if MG.name_of(path) is not None or (head == "settings" and n == 2 and parts[1] in MG.VERSIONS):
+        try:                                             # his management (T12): his test rows only (L19c)
+            return MG.check_value(form, MG.name_of(path) or parts[1], value, path)
+        except MG.Refused as err:
+            raise Refused(str(err)) from None
     if head == "settings" and n == 2:
         s = settings.ALL.get(parts[1])
         if s is None:
             raise Refused(f"'{path}': {parts[1]!r} is not a setting (machine/settings.py; use its own name)")
+        if parts[1] in MG.RETIRED:
+            raise Refused(f"'{path}': no code reads {parts[1]} any more - {MG.RETIRED[parts[1]]}. A version changing "
+                          "it would give the same trades.")
         if s.status == "his":
-            raise Refused(f"'{path}': {parts[1]} is HIS rule ({s.who}: {s.value!r}) - not a number to try. A version "
-                          "changes the timeframe or the idea's own numbers only.")
+            got = rules.managed_by(parts[1])
+            row = f" - his FIXED management rule {got[0]}: '{got[1].rule}' (machine/rules.py MANAGEMENT)" if got else ""
+            raise Refused(f"'{path}': {parts[1]} is HIS rule ({s.who}: {s.value!r}){row} - not a number to try. A "
+                          "version changes the timeframe or the idea's own numbers only.")
         _number(value, path)
         if not is_number(s.value):
             raise Refused(f"'{path}': {parts[1]} is not a number ({s.value!r}) - a version changes numbers only")
@@ -206,6 +221,14 @@ def _born(idea: str, files: list[dict]) -> str:
     return min(made) if made else "9999"
 
 
+def _first_trial(idea: str, files: list[dict]) -> str:
+    """The idea's first trial id: its clock has microseconds, so two ideas first tried in the same second keep their
+    real order (L19b tried his six entry types within 2 seconds - Type 1 and "Type 1 with the second gap" in the same
+    one). '~' = never tried (after every id)."""
+    ids = [str(f.get("trial_id", "")) for f in files if f.get("idea_id") == idea]
+    return min(ids) if ids else "~"
+
+
 def _utc(stamp: str) -> str:
     """A time as UTC text, so 'older' compares times, not clocks ('9999' = never seen)."""
     try:
@@ -231,12 +254,12 @@ def same_as_older(idea: str, form: Idea, files: list[dict] | None = None) -> tup
         except (store.StoreError, ValueError):
             continue                                     # no form yet / a block the old list has no name for
         if k == key:
-            found.append((_utc(_born(other, files)), other))
+            found.append((_utc(_born(other, files)), _first_trial(other, files), other))
     for other, k in _entry_types():
         if other != idea and k == key:
-            found.append((_utc(_born(other, files)), other))
-    older = sorted(x for x in found if x[0] < mine)
-    return (older[0][1], older[0][0]) if older else None
+            found.append((_utc(_born(other, files)), _first_trial(other, files), other))
+    older = sorted(x for x in found if x[0] < mine)       # the same second: the first trial decides, never the name
+    return (older[0][2], older[0][0]) if older else None
 
 
 def parent_of(idea: str, form: Idea | None = None, files: list[dict] | None = None) -> tuple[str | None, str]:
@@ -331,7 +354,12 @@ def about(form: Idea, readings: dict[str, str], changes: dict[str, Any]) -> str:
     base, _ = with_readings(form, readings)
     d = base.model_dump(mode="json")
     for path, v in changes.items():
-        parts.append(f"{path} = {v!r} (was {_get(d, path)!r})")
+        name = MG.name_of(path)
+        if name is not None and name in settings.ALL and _get(d, path) is None:   # his management: version 1's value
+            parts.append(f"{path} = {v!r} (his management, T12 {MG.VERSIONS[name].row}: version 1 is "
+                         f"{settings.ALL[name].value!r})" if name in MG.VERSIONS else f"{path} = {v!r}")
+        else:
+            parts.append(f"{path} = {v!r} (was {_get(d, path)!r})")
     return " · ".join(parts) or "the idea as written"
 
 
@@ -392,6 +420,10 @@ def check_version(idea: str, *, readings: dict[str, str] | None = None, changes:
     if asked:
         raise Refused(f"{', '.join(asked)}: an ASK part is his to answer, never a version's choice (R13)")
     dims = {path: check_change(base, path, value) for path, value in changes.items()}
+    try:
+        MG.check_needs(base, changes)                    # a management number whose switch is off: the same trades
+    except MG.Refused as err:
+        raise Refused(str(err)) from None
     try:
         f, used, changes, _ = C.prepare(form, readings, changes)
         missing = C.check_without_bars(f)

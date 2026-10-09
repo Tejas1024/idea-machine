@@ -231,6 +231,7 @@ BOT_GIT_FILES = (
     "plan/work/ideas/*/*",                        # the intake (L10b): each idea's words, search, form, pictures, report
     "plan/work/intake/*",                         # the intake's own files (the 10-in-a-row question, SHOWN sends)
     "plan/work/block-requests.md",                # blocks an idea waits for (L7b, written by the intake too)
+    "plan/work/L19d/*-with-his-hedge.*",          # a parked idea tested with his hedge by the intake (L19d page)
     "plan/work/labels/*/*.jsonl",                 # every label chart sent + his yes / no / not sure (L15.1)
 )
 # Files only ever ADDED to (never rewritten): when his PC and GitHub both added lines, the job keeps both.
@@ -312,7 +313,148 @@ LABELS_WINDOWS = ("week",)                        # the zone block's 5-day windo
 # most charts near his line, where a yes and a no are both likely, and some far from it on both sides.
 LABELS_CALM_EDGES = (0.85, 1.00)
 LABELS_PER_STEP = (3, 3, 2, 2)                    # calm up to 0.74 · to 0.85 · to 1.00 · above 1.00 (sums to 10)
-LABELS_WAITING_MAX = 20                           # no new charts while this many wait for his answer (Claude's number)
+LABELS_WAITING_MAX = 10                           # no new charts while this many wait for his answer (Claude's number):
+#                                                   one day's charts at most, so a plain list of numbers is always for
+#                                                   the right day (#166: with 2 days waiting it went to the wrong one)
+# His words, 7 Oct 2026 (strategy/learned-inbox/2026-10-07-0016-session.md): "you can send me that 200 or 600 things
+# that needed me". True = the next day's charts go as soon as he has answered every chart sent (daily.send_next: the
+# bot starts the intake after each of his answers, and the intake starts this first), not at the next 21:00 - still
+# one day's charts waiting at most. False = one day's charts at 21:00 again.
+LABELS_NEXT_AT_ONCE = True
+
+# ---- his eyes (L15.2): two models of his zone answers, measured honestly - machine/eyes --------------------------
+# Model A = LightGBM on numbers that describe the chart; model B = ResNet18 (trained on ImageNet photos) taught on the
+# pictures he answered. Every number here is Claude's, fixed before any model saw one of his answers (the plan file
+# plan/work/eyes/plan.json is committed first; `python -m machine.eyes run` refuses without it).
+EYES_WORD = "strong_zone"                         # the word L15.1 picked: his main, quiet zone
+EYES_DIR = DATA_DIR / "eyes"                      # the final models (not in git)
+EYES_WORK_DIR = WORK_DIR / "eyes"                 # in git: plan.json + plan.md, exams.md, runs.jsonl, the pictures
+EYES_REPORT = WORK_DIR / "eyes-model.md"          # the prompt's report
+EYES_KIND = "eyes"                                # its trial files in plan/work/trials/ (never an idea's answer)
+# THE TIME SPLIT (re-planned at the START GATE, 8 Oct: about 200 labels, not 600 - #117 / #168, never a candle shown
+# twice): each test year is guessed by models that learned ONLY from the charts before it - the referee's own years
+# (2018 learns from 2016-17, 2019 from 2016-18, 2020 from 2016-19). 2016-2017 only teach. The hidden years stay
+# closed (his 2 labels there have no picture, L15.1).
+EYES_TEST_YEARS = WALK_FORWARD_JUDGE_YEARS        # a chart belongs to the year of its first candle
+EYES_PURGE_DAYS = 7                               # a chart teaches year Y's models only if its last candle is 7 days or
+                                                  # more before the first candle of Y's first chart
+EYES_LEVEL = 0.90                                 # every accuracy with its 90% interval (Wilson); "beyond luck" = 10 in 100
+EYES_THRESHOLD = 0.5                              # a model says "yes" when its chance of his yes is 0.5 or more
+                                                  # (his written rule on the same chart: the label file's rule_says,
+                                                  # rules.py what_a_strong_zone_is - calm at most 0.74)
+EYES_LGBM_PARAMS = {                              # model A: small trees, no tuning on his answers
+    "objective": "binary", "learning_rate": 0.05, "num_leaves": 4, "max_depth": 2, "min_data_in_leaf": 8,
+    "lambda_l2": 1.0, "feature_fraction": 1.0, "bagging_fraction": 1.0, "deterministic": True,
+    "force_col_wise": True, "num_threads": 1, "verbose": -1, "seed": 0,
+}
+EYES_LGBM_ROUNDS = 150
+EYES_CROP = (50, 350, 1452, 1045)                 # the candle area of every 1560 x 1191 label picture (left, top, right,
+                                                  # bottom): the heading, the question, the prices and the dates are cut
+EYES_IMAGE_HW = (224, 448)                        # model B sees the candle area at 224 x 448 (height, width)
+EYES_NET = {                                      # model B: ResNet18 with its ImageNet weights (torchvision)
+    "weights": "IMAGENET1K_V1", "train_from": "layer3",   # the first layers stay as ImageNet taught them
+    "epochs": 10, "batch": 16, "lr_body": 3e-4, "lr_head": 1e-3, "weight_decay": 1e-4,
+    "shift_px": 8,                                # each round the picture moves up to 8 dots; never flipped (time runs
+}                                                 # left to right, and price up)
+EYES_SEEDS = (0, 1, 2)                            # model B is taught 3 times; its answer = the average of the 3
+EYES_THREADS = 6                                  # of the 8 cores: the bot and the live alerts keep the rest
+EYES_BOOT = 2000                                  # resamples for the "yes chart scores higher" interval
+EYES_MISTAKES_EACH = 3                            # pictures of mistakes: the 3 surest of each kind
+EYES_NOISE_RUNS_A = 50                            # the exams on made-up answers (before his answers are scored)
+EYES_NOISE_RUNS_B = 2
+
+# ---- the host PC runs every day (L16.1): machine/host ------------------------------------------------------------
+# Two Task Scheduler jobs on the bot host (Tejas's PC): the daily run and the hourly heartbeat. Their logs, locks and
+# state are not in git. All numbers here are Claude's, not Tejas's rules.
+HOST_DIR = DATA_DIR / "host"                      # daily.jsonl, heartbeat.jsonl, alerts.json, the locks, the logs
+DAILY_AT = "07:00"                                # India time: after the server day closed (03:30 India time at the
+                                                  # latest), before his day; a run missed while the PC was off runs
+                                                  # as soon as it is on again
+DAILY_TASK_NAME = "ML Bot - daily run (L16.1)"
+HEARTBEAT_TASK_NAME = "ML Bot - heartbeat (L16.1)"
+HEARTBEAT_EVERY_MINUTES = 60                      # the prompt's "hourly"
+HEARTBEAT_LATE_MINUTES = 90                       # no beat for longer than this = a missed heartbeat: the hour + 30 min
+                                                  # for Task Scheduler's own delays after a restart
+HEARTBEAT_LOGON_DELAY_MINUTES = 2                 # the beat at logon waits for the network after a power cut
+DISK_FREE_MIN_GB = 5                              # less free space than this on the repo's drive -> an alert
+INTAKE_STUCK_HOURS = 6                            # an intake run working longer than this -> an alert (a research run
+                                                  # with his hedge takes about an hour; 6 hours is no longer working)
+# The prices from MT5 (prompt step 2): every complete SERVER day after the last one kept, into SEALED_DIR/mt5/ as raw
+# text in L1's own format (time,open,high,low,close,vol,spread), never parsed - nothing reads them until a T14 use opens
+# them (live-trial for L17a, the final exam with his yes again). The server is the one the price data came from: the
+# clock (machine/data/clock.py) was measured on it. Another server = refused (its clock and prices may differ).
+SEALED_MT5_DIR = SEALED_DIR / "mt5"               # <timeframe>/<server day>.csv + manifest.jsonl (times and counts only)
+MT5_SERVER = "MetaQuotes-Demo"
+MT5_SYMBOL = "XAUUSD"
+MT5_STORE_TIMEFRAMES = ("M1", "M5")               # the same two MT5 files L1 sealed
+MT5_DAY_DONE_MINUTES = 10                         # a server day is complete this long after its midnight
+MT5_LOAD_WAIT_SECONDS = 300                       # on a trading day, wait up to this long for MT5 to load today's bars
+# MLflow (prompt step 4): one MLflow run per trial file, in a local store - the trial files stay the count (the referee
+# counts files, never MLflow). See it: python -m machine.host mlflow-ui
+MLFLOW_DIR = DATA_DIR / "mlflow"                  # mlflow.db (sqlite) + artifacts/; not in git
+MLFLOW_EXPERIMENT_PREFIX = "trials-"              # one experiment per trial kind: trials-tester, trials-belief, ...
+
+# ---- the live news alerts (L17a): machine/live -----------------------------------------------------------------------
+# This week's Forex Factory calendar (his calendar: red + orange, T7) is read under T14 use 2 ("news-values": 2024+
+# news NUMBERS in the live alerts only) and kept apart from the 2015-2023 history in NEWS_FF_DIR - no test, tune or
+# research code reads LIVE_DIR. All numbers here are Claude's, not Tejas's rules.
+LIVE_DIR = DATA_DIR / "live"                      # ff/<sunday>.json (this week's rows), sent.jsonl, state, lock, log
+LIVE_TASK_NAME = "ML Bot - live news alerts (L17a)"
+LIVE_EVERY_MINUTES = 1                            # Task Scheduler starts `machine.live once` this often
+LIVE_COLOURS = ("red", "orange")                  # his news (T7): Forex Factory's red and orange
+LIVE_BEFORE_MINUTES = 30                          # the prompt: an alert 30 min before each release ...
+LIVE_AFTER_WAIT_MINUTES = 30                      # ... and one after it: as soon as the number is on Forex Factory,
+                                                  # at the latest this long after the release (then without a number)
+LIVE_WEEK_REFRESH_MINUTES = 60                    # this week's page again after this long (forecasts can change) ...
+LIVE_AFTER_REFRESH_SECONDS = 50                   # ... and this often while a release waits for its number
+LIVE_USER_AGENT = "ML-Bot live news alerts (personal)"
+# Live prices (step 2): T14 use 1 ("live-trial": live prices from today on + the recent days an alert needs, for alerts
+# and paper trades only - never to test, tune or choose). From MT5_SERVER only, closed 1-minute bars only.
+LIVE_PAST_DAYS = 45                               # a pass reads this many days of 1-minute bars: 20 New York days for
+                                                  # "usual at this time" and his 10-day ADR, with room for holidays
+LIVE_FEED_FRESH_MINUTES = 3                       # the newest bar closed longer ago than this: market shut or no feed
+LIVE_TAPE_DIR = LIVE_DIR / "tape"                 # <server day>.csv: the bars the passes saw LIVE, in L1's own text
+LIVE_TAPE_FRESH_MINUTES = 5                       # a bar is on the tape only if a pass got it this soon after it closed
+LIVE_OTHER_NEAR_MINUTES = 60                      # the daily check: a minute seen with other prices than MT5's history
+                                                  # is "explained" (no warning on his phone) only when the live feed got
+                                                  # only part of its ticks AND no alert was made within this many
+                                                  # minutes after it (Claude's number, 8 Oct 2026: on Tue 6 and Wed 7 Oct
+                                                  # a session had to say so by hand; "part of its ticks" since 9 Oct)
+# His bias and his levels at an alert (step 3), drawn by his own blocks on live bars (guards.live_trial). How much
+# history each needs was MEASURED on the 1,043 releases of 2018-2020 against the whole history (L17a-notes step 3):
+LIVE_LEVEL_DAYS = 90                              # his nearest levels: 1-minute bars from the Monday before this (60
+                                                  # days already gave the same levels as the whole history: 100%)
+LIVE_HOUR_BIAS_DAYS = 240                         # his hour bias: the hour chart of these days (99.3% the same; 730
+                                                  # days 100%) - kept recent (T14: "the recent days"); not matched on
+LIVE_PREVIEW_HOURS = 8                            # the next release this soon has its alerts built AHEAD, in memory, on
+LIVE_PREVIEW_EVERY_MINUTES = 180                  # the live feed - again after this long or when the code changed - so
+                                                  # a bug shows hours before the alert, not at it (5 Oct, step 3)
+LIVE_STALE_MINUTES = 10                           # the heartbeat (L16.1): no live pass for this long = an alert
+LIVE_CHARTS_FROM = "2016-01-01"                   # his day and week bias: the day and week charts from here, as every
+                                                  # 2016-2023 table (the week's 2018 trade began years before: 2 years
+                                                  # of history gave the same week bias only 72% of the time)
+# The big-move alert (strategy.md section 12: breaking news -> flag "analysis may change"). The rule was fixed before
+# anything was counted; the two sizes were then set on 2016-2020 (never on live prices, T14) to about one alert a week:
+# 0.95 a week, 249 in 5 years (plan/work/L17a-notes.md, step 2). `python -m machine.live moves 2016 2020` counts again.
+LIVE_MOVE_MINUTES = 15                            # the move: highest high - lowest low of the last 15 closed bars ...
+LIVE_MOVE_MIN_BARS = 12                           # ... with at least 12 of them there
+LIVE_MOVE_USUAL_DAYS = 20                         # "usual at this time": the median of the same move at the same New
+LIVE_MOVE_USUAL_MIN_DAYS = 10                     # York minute on the last 20 New York days (at least 10 with it)
+LIVE_MOVE_TIMES_USUAL = 6.0                       # big = at least 6 times the usual at this time ...
+LIVE_MOVE_SHARE_OF_DAY = 0.3                      # ... and at least 0.3 of a day's range (his 10-day ADR)
+LIVE_MOVE_QUIET_MINUTES = 240                     # after one alert, none for 4 hours (the same move goes on)
+LIVE_NEWS_CALM_MINUTES = {"red": 120, "orange": 40}   # his news explains a move this long after it (L12b.2: gold is
+LIVE_NEWS_EARLY_MINUTES = 5                       # calm again after ~2 h / ~40 min) and from 5 minutes before it
+
+# ---- the forward test (L17c): the plan, locked BEFORE any live bar -----------------------------------------------
+# For an idea only new days can judge (the machine's "FORWARD TEST"). The trades it needs come from the referee's own
+# rule (POWER_NEEDED_EDGE caught at least POWER_NEEDED_SHARE of the time, at least MIN_TRADES) - no new number. These
+# three are Claude's numbers (9 Oct 2026), not Tejas's rules; machine/forward/plan.py prints them in every plan.
+FORWARD_START_DAYS = 3                            # it starts on the first Monday at least this many days after the plan
+                                                  # was written: the nightly job (L9c) puts the plan on main first
+FORWARD_DATE_ROOM = 1.5                           # the end date: the weeks its trades need at their 2016-2023 pace,
+                                                  # times this (room for a slower market); judged at the first of the two
+FORWARD_MAX_TRADES = 3000                         # the search for the trades needed stops here ("more than this")
 
 
 def env(name: str, default: str | None = None) -> str | None:

@@ -449,6 +449,20 @@ def test_an_idea_with_the_same_blocks_timeframe_and_entry_as_an_older_one_is_its
     assert trials.parents(trials.load())["idea-104"] == "idea-101"
 
 
+def test_two_older_ones_first_tried_in_the_same_second_the_first_trial_is_the_older(lab, monkeypatch):
+    """L19b tried his entry types within 2 seconds: Type 1 (19:50:57.27) and "Type 1 with the second gap" (19:50:57.83)
+    have the same blocks, chart and entry. Found 9 Oct on made-up prices: a plain grab + gap from his phone became a
+    version of the second-gap entry - the same second, so the NAME decided. The trial id's clock decides now."""
+    form = make_idea("idea-104")
+    key = V._key3(form)
+    monkeypatch.setattr(V, "_entry_types", lambda: (("entry-a-second-gap", key), ("entry-b-type1", key)))
+    same_second = "2026-09-30T19:50:57+05:30"
+    files = [{"idea_id": "entry-a-second-gap", "made_at": same_second, "trial_id": "20260930-142057-827300-6070ba"},
+             {"idea_id": "entry-b-type1", "made_at": same_second, "trial_id": "20260930-142057-272805-9079be"}]
+    assert V.same_as_older("idea-104", form, files)[0] == "entry-b-type1"
+    assert V.parent_of("idea-104", form, files)[0] == "entry-b-type1"
+
+
 def test_run_version_never_passes_the_budget_and_never_runs_a_version_not_proposed(lab):
     make_idea("idea-101")
     T.start("idea-101")

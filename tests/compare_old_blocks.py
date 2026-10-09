@@ -81,37 +81,68 @@ def compare() -> dict:
         R[f"blocks_{side}_count"] = int(_in_month(s["confirmed_bar"]).sum())
 
     # ---- breaks: the first wick through each block while it is the most recent (old arrays, bar by bar) ------
+    # The old engine's level is the block candle's own wick. His 7 Oct 2026 words (idea #4's setup 3; understanding
+    # §66cf): the break must pass the LOWEST wick from the red block to the candle above its high (a buy: the
+    # highest). So the old loop runs twice - with the old level and with his - the confirming candle read from the new
+    # blocks (the same blocks as the old ones, checked above).
     br = structure.breaks(bars, "5m")
+    his_level = {}
+    for side in ("sell", "buy"):
+        s = ob[ob.side == side]
+        for k, j in zip(idx.get_indexer(pd.DatetimeIndex(s["block_bar"])),
+                        idx.get_indexer(pd.DatetimeIndex(s["confirmed_bar"]))):
+            his_level[(side, int(k))] = float(lo[k:j + 1].min() if side == "sell" else h[k:j + 1].max())
+    own_level = lambda side, k: float(lo[k] if side == "sell" else h[k])                            # noqa: E731
     for side, old_arr in (("sell", old_dn), ("buy", old_up)):
-        old_first = {}
+        old_first, his_first = {}, {}
         for i in range(n):
             k = int(old_arr[i])
-            if k < 0 or k in old_first:
+            if k < 0:
                 continue
-            if (side == "sell" and lo[i] < lo[k]) or (side == "buy" and h[i] > h[k]):
-                old_first[k] = i
+            for first, lvl in ((old_first, own_level(side, k)), (his_first, his_level.get((side, k), np.nan))):
+                if k not in first and ((side == "sell" and lo[i] < lvl) or (side == "buy" and h[i] > lvl)):
+                    first[k] = i
         old_set = {(k, i) for k, i in old_first.items() if month[i]}
+        his_set = {(k, i) for k, i in his_first.items() if month[i]}
         s = br[br.side == side]
         new_set = {(int(k), int(i)) for k, i in zip(idx.get_indexer(pd.DatetimeIndex(s["block_bar"])),
                                                     idx.get_indexer(pd.DatetimeIndex(s["bar"]))) if month[i]}
         R[f"break_{side}"] = (len(old_set), len(new_set), len(old_set & new_set))
+        R[f"break_{side}_his_wick"] = (len(his_set), len(new_set), len(his_set & new_set))
+        differ = {k for k, _ in old_set ^ new_set}
+        R[f"break_{side}_differs"] = (len(differ), sum(abs(his_level.get((side, k), np.nan) - own_level(side, k))
+                                                        > 1e-9 for k in differ))
 
     # ---- the old setups (grab + gap) against the new break + gap blocks ------------------------------------
     book, A, bias = OLV.build(df)
     S = [s for s in OSE.detect(df, book, A, bias) if month[s["arm_bar"]]]
     gt = fvg.gaps(bars, "5m")
+    age = int(settings.get("order_block_max_age_bars"))
     tally = Counter()
     examples = {}
     for s in S:
         side = "buy" if s["dir"] == 1 else "sell"
         sweep, bos = idx[s["sweep_bar"]], idx[s["bos_bar"]]
         nb = structure.first_break_after(bars, "5m", side, sweep)
+        old_arr = old_dn if side == "sell" else old_up
+        own = _first_break(old_arr, s["sweep_bar"], side, age, h, lo, lambda k: own_level(side, k))
+        his = _first_break(old_arr, s["sweep_bar"], side, age, h, lo,
+                           lambda k: his_level.get((side, k), np.nan))
         if nb is not None and nb["bar"] == bos and nb["block_bar"] == idx[s["ob_bar"]] \
                 and abs(nb["level"] - s["bos_level"]) < 1e-9:
             tally["A. break: the same candle, block and level"] += 1
+        elif nb is not None and nb["bar"] == bos and nb["block_bar"] == idx[s["ob_bar"]] \
+                and abs(nb["level"] - his_level.get((side, s["ob_bar"]), np.nan)) < 1e-9:
+            tally["A. break: the same candle and block; the level is his 7 Oct wick (the confirming candles wicked "
+                  "past the block, and the break candle passed that too)"] += 1
         elif nb is not None and nb["bar"] < bos and _grab_kept_going(h, lo, s, idx.get_loc(nb["bar"])):
             tally["A. break: new one earlier - price then made a new extreme through the grab (old REGRAB)"] += 1
             examples.setdefault("grab kept going", (str(sweep), str(nb["bar"]), str(bos)))
+        elif own != his and (nb is None) == (his is None) and \
+                (nb is None or (idx.get_loc(nb["bar"]), idx.get_loc(nb["block_bar"])) == his):
+            tally["A. break: later / another block - his 7 Oct rule: the break must pass the lowest wick from the "
+                  "block to its confirming candle (the old blocks with his level give the new break)"] += 1
+            examples.setdefault("his 7 Oct wick", (str(sweep), None if nb is None else str(nb["bar"]), str(bos)))
         else:
             tally["A. break: differs, not explained"] += 1
             examples.setdefault("break differs", (str(sweep), None if nb is None else str(nb["bar"]), str(bos)))
@@ -190,6 +221,20 @@ def compare() -> dict:
     return R
 
 
+def _first_break(old_arr, s: int, side: str, age: int, h, lo, level_of) -> tuple[int, int] | None:
+    """(candle, block) of the first candle after the sweep candle s whose wick goes past level_of(block) of the old
+    engine's block in force at it, that block no older than `age` candles before s - or None. A plain loop, on the
+    old engine's own block arrays."""
+    for i in range(s + 1, len(old_arr)):
+        k = int(old_arr[i])
+        if k < 0 or k < s - age:
+            continue
+        lvl = level_of(k)
+        if (side == "sell" and lo[i] < lvl) or (side == "buy" and h[i] > lvl):
+            return i, k
+    return None
+
+
 def _filled_on_next_candle(mv: pd.DataFrame, h, lo, nxt: int, side: str, below: int) -> bool:
     """Was one of the move's gaps ranked before `below` filled through (to its far edge) on the candle `nxt`?"""
     if nxt >= len(h):
@@ -263,8 +308,13 @@ def markdown(R: dict) -> str:
         + ("—" if R['block_sell'][0] == R['block_sell'][1] else f"first differences: {R['block_sell'][2]}") + " |",
         f"| buy order block known at each bar | {R['block_buy'][0]:,} bars | | {R['block_buy'][1]:,} bars | "
         + ("—" if R['block_buy'][0] == R['block_buy'][1] else f"first differences: {R['block_buy'][2]}") + " |",
-        f"| first break of each sell block | {R['break_sell'][0]} | {R['break_sell'][1]} | {R['break_sell'][2]} | — |",
-        f"| first break of each buy block | {R['break_buy'][0]} | {R['break_buy'][1]} | {R['break_buy'][2]} | — |",
+        f"| first break of each sell block | {R['break_sell'][0]} | {R['break_sell'][1]} | {R['break_sell'][2]} | "
+        f"see 8: the old loop with his 7 Oct level finds {R['break_sell_his_wick'][0]}, the same "
+        f"{R['break_sell_his_wick'][2]}; {R['break_sell_differs'][1]} of the {R['break_sell_differs'][0]} blocks that "
+        "break elsewhere had their level moved by it |",
+        f"| first break of each buy block | {R['break_buy'][0]} | {R['break_buy'][1]} | {R['break_buy'][2]} | "
+        f"see 8: with his level {R['break_buy_his_wick'][0]}, the same {R['break_buy_his_wick'][2]}; "
+        f"{R['break_buy_differs'][1]} of {R['break_buy_differs'][0]} moved by it |",
         f"| gaps (3-candle) in the month | | {R['gaps_month'][0]} ({R['gaps_month'][1]} buy, {R['gaps_month'][2]} sell) "
         "| | the same formula as the old `detect()` |",
         f"| first visit back to the near edge | a plain loop | | {_pct(R['first_visit_same'][1], R['first_visit_same'][0])}"
@@ -337,6 +387,12 @@ def markdown(R: dict) -> str:
         "7. **No-future stamps.** Every new row carries `known_at` (the close of the last candle it needs). The old engine "
         "carried the same lag in its loops; the new one is checked by `guards.assert_no_future_events` on every block "
         "(tests/test_blocks.py), which also catches a row stamped one candle early.",
+        "8. **The break's level (his 7 Oct 2026 words, idea #4's setup 3).** The old engine broke a red block when a wick "
+        "went below the block candle's own low. His NO to setup 3: \"it should have break the wick of the green candle "
+        "which is right side to the red candle that u considered as break\" - the break must pass the LOWEST wick from "
+        "the red block to the candle above its high (a buy: the highest), strategy-understanding §66cf. The old "
+        "loop run with his level gives exactly the new breaks; the old setups whose break moved are listed above "
+        "('his 7 Oct wick').",
         "",
     ]
     return "\n".join(lines)

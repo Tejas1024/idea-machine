@@ -227,6 +227,24 @@ def test_a_good_answer_makes_a_drafted_form_with_its_checks():
     assert "FORM: FORM DRAFTED" in d.text() and "UNCLEAR: none" in d.text()
 
 
+def test_a_limit_at_a_gap_gets_his_g8_rule_by_code():
+    """strategy.md section 2 G8: 'If price took the target-side liquidity before coming back -> no entry', and his #68
+    first visit (the setup's gaps, §65e). Idea #4's form (7 Oct 2026) was drafted without them; code adds both to
+    every limit order at a gap, once."""
+    both = ["target_reached_first", "price_comes_back_into_another_gap_first"]
+    d = draft(wire())                                          # his usual setup: a limit at the gap's near edge
+    assert d.valid and not d.missing and [r.name for r in d.form.do_not_enter] == both
+    assert "G8" in d.form.do_not_enter[0].sources[0].ref and "#68" in d.form.do_not_enter[1].sources[0].ref
+    w = wire(do_not_enter=[{"name": "target_reached_first", "params": [], "words": None, "sources": ["his words"]}])
+    assert [r.name for r in draft(w).form.do_not_enter] == both                               # never twice
+    assert draft(w).form.do_not_enter[0].sources[0].ref == "his words"                        # his own kept
+    w = wire(entry={"how": "next_open", "at": None, "max_wait": None, "sources": ["his words"]})
+    assert not draft(w).form.do_not_enter                       # no limit order: nothing to cancel
+    w = wire()
+    w["entry"]["at"] = "brk.extreme"                            # a limit, but not at a gap
+    assert not T.with_his_gap_rules(T.to_form(w, "idea-900", "w"))["do_not_enter"]
+
+
 def test_a_kind_named_with_its_side_is_its_family_not_a_missing_block():
     """Found on the first real intake run (L10b, 29 Sep): the talker wrote "session_high" (the side in the name) and
     the idea was BLOCKED for a block that is built. The side comes from the trade's direction."""

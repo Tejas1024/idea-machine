@@ -105,6 +105,14 @@ def _trials_in_tmp(tmp_path, monkeypatch):
     monkeypatch.setattr(mconfig, "LABELS_DIR", tmp_path / "labels-data")
     monkeypatch.setattr(mconfig, "LABELS_WORK_DIR", tmp_path / "labels")
     monkeypatch.setattr(mconfig, "LABELS_OPT_IN", tmp_path / "labels" / "opt-in.md")
+    # ... and never writes his eyes' plan, exams, runs, report or final models (L15.2)
+    monkeypatch.setattr(mconfig, "EYES_DIR", tmp_path / "eyes-data")
+    monkeypatch.setattr(mconfig, "EYES_WORK_DIR", tmp_path / "eyes")
+    monkeypatch.setattr(mconfig, "EYES_REPORT", tmp_path / "eyes-model.md")
+    # ... and never writes the live alerts' files or a line in the real log of sealed-year openings (L17a)
+    monkeypatch.setattr(mconfig, "LIVE_DIR", tmp_path / "live")
+    monkeypatch.setattr(mconfig, "LIVE_TAPE_DIR", tmp_path / "live" / "tape")
+    monkeypatch.setattr(mconfig, "SEALED_LOG", tmp_path / "sealed_access.log")
     return folder
 
 
@@ -113,10 +121,12 @@ def _no_research_planner_call(monkeypatch):
     """No test reaches Claude through Tejas's login by accident (his plan's usage, L14.2): the research agent's own
     planner refuses - a test gives the agent a planner of its own."""
     from machine.agent import research
+    from machine.strategy import research as strategy_research
 
     def refuse(*a, **k):
         raise AssertionError("a test reached Claude (the research agent's planner) - give the agent a planner")
     monkeypatch.setattr(research, "claude_planner", refuse)
+    monkeypatch.setattr(strategy_research, "claude_planner", refuse)     # his whole strategy's planner (L19d)
 
 
 def pytest_collection_modifyitems(config, items):

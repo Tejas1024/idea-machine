@@ -317,7 +317,8 @@ def agent_call(*, system: str, user: str, schema: dict, servers: dict, allowed: 
     that can read files walks past every guard inside the tools, machine/mcp/README.md). Its answer is forced into
     `schema` (--json-schema); every tool call it made comes back too (--output-format stream-json), for the log.
     servers: {"name": {"command", "args", "env"}} - written with json.dumps (a Git Bash heredoc halves backslashes).
-    A server that did not start gives an error here, never a quiet answer without tools (seen in L14.1)."""
+    A server that did not start gives an error here, never a quiet answer without tools (seen in L14.1). The same
+    for a tool answer Claude Code cut for its length (seen in the 8 Oct rehearsal, L10b)."""
     runner = runner or subprocess.run
     work = Path(work or CACHE_DIR / "claude-agent-cwd")   # an empty folder: the project's CLAUDE.md is not read
     work.mkdir(parents=True, exist_ok=True)
@@ -341,6 +342,13 @@ def agent_call(*, system: str, user: str, schema: dict, servers: dict, allowed: 
         cfg.unlink(missing_ok=True)
     return read_agent_stream(p.stdout or "", model=model, seconds=time.monotonic() - t0,
                              stderr=p.stderr or "", servers=tuple(servers))
+
+
+def _cut(said: str | None) -> bool:
+    """Claude Code did not give Claude this tool answer: it saved it to a file ('<persisted-output> Output too large')
+    or refused it ('exceeds maximum allowed tokens'). Claude has no tool that reads a file here."""
+    s = (said or "").lstrip()
+    return s.startswith("<persisted-output>") or "exceeds maximum allowed tokens" in s[:200]
 
 
 def read_agent_stream(out: str, *, model: str, seconds: float, stderr: str = "",
@@ -394,6 +402,11 @@ def read_agent_stream(out: str, *, model: str, seconds: float, stderr: str = "",
         if "limit" in why.lower():
             why += " - his plan's usage limit: run again when it resets"
         return AgentAnswer(None, error=f"claude -p: {why}", **common)
+    cut = [c["tool"] for c in tool_calls if _cut(c["said"])]
+    if cut:                                                # Claude answered WITHOUT that tool's answer (L10b rehearsal)
+        return AgentAnswer(None, error=f"Claude Code cut the answer of {', '.join(dict.fromkeys(cut))} (too long "
+                                       "for it), so Claude answered without reading it - see WHOLE in "
+                                       "machine/mcp/server.py", **common)
     answer = result.get("structured_output")
     if not isinstance(answer, dict):
         return AgentAnswer(None, error="claude -p: no answer in the plan's shape", **common)

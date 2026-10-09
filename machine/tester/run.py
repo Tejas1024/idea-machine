@@ -20,7 +20,7 @@ import pandas as pd
 
 from machine import config, costs, guards, trials
 from machine.data import bars
-from machine.tester.engine import CHECK_BEFORE_FILL, Replay, replay
+from machine.tester.engine import CHECK_BEFORE_FILL, FIRST_VISIT_SPENT, Replay, replay
 from machine.tester.models import Signal, Trade
 
 CODE_FILES = ("engine.py", "models.py", "run.py")
@@ -120,7 +120,8 @@ def summarize(rep: Replay) -> dict:
         "not_filled": {"expired": missed.get("expired", 0), "cancelled": missed.get("cancelled", 0),
                        "target reached first": missed.get("target reached first", 0),
                        "window ended": missed.get("window ended", 0),
-                       **({CHECK_BEFORE_FILL: missed[CHECK_BEFORE_FILL]} if missed.get(CHECK_BEFORE_FILL) else {})},
+                       **({CHECK_BEFORE_FILL: missed[CHECK_BEFORE_FILL]} if missed.get(CHECK_BEFORE_FILL) else {}),
+                       **({FIRST_VISIT_SPENT: missed[FIRST_VISIT_SPENT]} if missed.get(FIRST_VISIT_SPENT) else {})},
         "closed_by": dict(reasons),
         "closed_at_once": sum("past at fill" in t.exit_reason for t in closed),
         "ambiguous": sum(t.ambiguous for t in closed),

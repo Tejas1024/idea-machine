@@ -7,9 +7,10 @@ import pytest
 from machine import config
 
 PACKAGES = ["data", "blocks", "tester", "referee", "ideas", "talker", "search", "questions", "report", "intake",
-            "learner", "news", "beliefs", "charts", "telegram", "live", "money", "tools", "agent", "mcp", "entries"]
+            "learner", "news", "beliefs", "charts", "telegram", "live", "money", "tools", "agent", "mcp", "entries",
+            "dashboard"]
 KEYS = ["ANTHROPIC_API_KEY", "VOYAGE_API_KEY", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_TEST_BOT_TOKEN",
-        "TELEGRAM_TEST_CHAT_ID", "MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER"]
+        "TELEGRAM_TEST_CHAT_ID", "MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "HEARTBEAT_PING_URL"]
 
 
 def test_machine_never_imports_old():

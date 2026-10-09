@@ -108,6 +108,9 @@ FORM_BLOCKS = {
     "bias": "htf_bias",                         # his direction on the hour / day / week chart (L6b.3)
     "hammer": "hammer",
     "premium_discount": "adr",                  # his ADR zones (strategy.md section 7) - the old list's ADR band
+    # L6-new (idea #4): a CLOSE beyond the ADR zone, then the trade. No old row traded that: `band_pass_through_filter`
+    # (understanding §33g) only DROPPED setups whose fill candle closed beyond the band - it stays a close relative.
+    "adr_zone_break": ("adr", "adr_zone_break"),
     "all_time_high": "all_time_high",
     "one_minute": "one_minute",                 # the 1-minute check before a 5-minute gap entry (L6b.4)
     "trendline_touch": "trendlines",            # his Type 2 (L19b's key for it: trendlines, line:touch)

@@ -1,0 +1,62 @@
+# The idea machine in Docker (L16.2) - everything that does not need MT5. docs/DOCKER.md says more.
+#
+#   docker compose up                              the tests (like GitHub's) + the dashboard on http://127.0.0.1:8050
+#   docker compose run --rm tests                  only the tests; the exit code is pytest's
+#   docker compose up -d dashboard                 only the dashboard, in the background (docker compose down stops it)
+#   docker compose --profile demo run --rm demo    one made-up idea through every step (about 2 minutes)
+#
+# NOT here, on purpose: the Telegram bot, the live alerts, the daily run and the heartbeat. They need MT5 or Windows,
+# and there is ONE of each, on Tejas's PC (Task Scheduler) - a second bot would read his chat twice (hard rule 8).
+#
+# The dashboard reads the machine's files READ ONLY, from this folder - or from MACHINE_HOME when it is set (a session
+# in a worktree: MACHINE_HOME="C:/ML Bot" docker compose up). It never gets data/live or data/sealed (2024+ prices),
+# the price files or .env.
+name: idea-machine
+
+x-image: &image
+  build: .
+  image: idea-machine:local
+
+services:
+  tests:
+    <<: *image
+    command: ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+    network_mode: none          # a test can never message Tejas, call Claude or reach GitHub
+    cpus: 4
+    mem_limit: 4g
+
+  dashboard:
+    <<: *image
+    command: ["python", "-m", "machine.dashboard", "--host", "0.0.0.0", "--port", "8050"]
+    environment:
+      DASHBOARD_FILES: ${MACHINE_HOME:-the folder of compose.yaml}   # named at the foot of the page
+    ports:
+      - "127.0.0.1:8050:8050"   # this PC only, not the home network
+    volumes:                    # read only (:ro) - the page cannot change a file even by mistake
+      - ${MACHINE_HOME:-.}/plan/work:/app/plan/work:ro
+      - ${MACHINE_HOME:-.}/data/host:/app/data/host:ro
+      - ${MACHINE_HOME:-.}/data/intake:/app/data/intake:ro
+      - ${MACHINE_HOME:-.}/data/telegram:/app/data/telegram:ro
+    read_only: true             # nothing in the container is writable either, except /tmp
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    cpus: 0.5                   # small: the bot, MT5 and the live alerts share this PC
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8050/health', timeout=5)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  demo:
+    <<: *image
+    profiles: [demo]
+    command: ["python", "-m", "machine.demo"]
+    network_mode: none
+    cpus: 2
+    mem_limit: 2g

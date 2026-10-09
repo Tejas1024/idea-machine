@@ -3,11 +3,13 @@ his T9 opt-in), his replies through the ONE bot (a label is not a lesson; more w
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import io
 import json
 import re
 from fnmatch import fnmatchcase
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -234,6 +236,117 @@ def test_status_counts_the_label_charts(bot, tg, where):
     assert "6 from your drawings; 3 sent, 1 answered, 2 waiting" in line and "not asked yet (T9)" in line
 
 
+# his own way, 1 Oct 2026 (Telegram message 915, word for word): not a reply, his zones listed, the rest not his
+HIS_LIST = ("Below are my zones, which I did not mentioned are not mine.\n\n"
+            "Also I already taught you all , again you are asking \n\n1.3.7.")
+
+
+@pytest.mark.parametrize("words,want", [
+    (HIS_LIST, [1, 3, 7]), ("1 3 7", [1, 3, 7]), ("my zones: 1, 3 and 7", [1, 3, 7]), ("1,3,7,3", [1, 3, 7]),
+    ("10", [10]), ("3", [3]), ("my zone: 3", [3]), ("all my zones: 3", [3]), ("these are all my zones 1 3", [1, 3]),
+    ("0.74", []), ("sell at 1:4", []), ("1 yes 2 no", []), ("2350", []), ("12", []), ("1.3.17", []),
+    ("I like chart 3 because the candles are small", []), ("", []),
+    ("All 3 ok", []), ("all 3 are ok", []), ("ok all 3", []), ("All the 3 are okay", []), ("All 10", []),  # all three
+])
+def test_his_list_of_chart_numbers(words, want):
+    assert LR.listed(words) == want
+
+
+def test_all_3_ok_while_charts_wait_is_a_lesson_not_his_zone_3(bot, tg, where):
+    """"All 3 ok" typed on its own on 8 Oct means the picture of 3 setups (idea #3), not "chart 3 is my zone": the
+    bot files it as a lesson - the intake reads it as his YES (tests/test_intake.py) - and labels nothing."""
+    _charts(where, 10)
+    bot.send_outbox()
+    tg.text("All 3 ok")                                                # NOT a reply to a picture
+    bot.poll_once()
+    assert LR.read_replies(WORD, where.labels) == [] and len(_inbox(where)) == 1
+    [logged] = [json.loads(ln) for ln in (where.bot / "messages.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert logged["kind"] == "lesson" and not logged.get("labels")
+
+
+def test_his_list_says_yes_to_the_listed_charts_and_no_to_the_rest():
+    assert LR.read_all("1.3.7.", list(range(1, 11))) == [(n, "yes" if n in (1, 3, 7) else "no") for n in range(1, 11)]
+    assert LR.read_all("1 3 12", [1, 2, 3]) == []                      # 12 is no chart number: no list at all
+    assert LR.read_all("1 yes 2 no", [1, 2, 3]) == [(1, "yes"), (2, "no")]   # yes / no wins: only what he said
+
+
+def test_his_list_as_a_plain_message_answers_the_newest_days_charts(bot, tg, where):
+    qids = _charts(where, 10)
+    bot.send_outbox()
+    u = tg.text(HIS_LIST)                                              # NOT a reply to a picture
+    bot.poll_once()
+    got = {r["qid"]: (r["label"], r["replied_to"]) for r in LR.read_replies(WORD, where.labels)}
+    assert got == {q: ("yes" if k in (1, 3, 7) else "no", None) for k, q in enumerate(qids, 1)}
+    reply = tg.replies_to(u)[0]
+    assert reply.startswith("Saved for the charts of 01 Oct: your zones 1, 3, 7; not yours 2, 4, 5, 6, 8, 9, 10.")
+    assert "answered so far: 10" in reply and "also saved as a lesson" in reply   # his other words are a lesson
+    [lesson] = _inbox(where)
+    assert "not a reply to a picture" in lesson.read_text(encoding="utf-8")
+    [logged] = [json.loads(ln) for ln in (where.bot / "messages.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert logged["kind"] == "answer" and logged["labels"]
+
+
+@pytest.mark.parametrize("words,want", [
+    ("none", True), ("None.", True), ("None of them are mine", True), ("nothing today", True), ("0", True),
+    ("zero", True), ("No zones today", True), ("all no", True), ("Not even one", True),
+    (HIS_LIST.replace("1.3.7.", "none"), True),
+    ("no", False), ("No zone", False), ("not mine", False), ("1 3 7", False), ("1 yes\nnone", False),
+    ("0.74", False), ("none of the sell trades worked", False), ("Nothing works in Asia", False), ("", False),
+])
+def test_his_list_of_none(words, want):
+    assert LR.none_listed(words) is want
+
+
+def test_his_list_of_none_says_no_to_every_chart_of_that_day():
+    assert LR.read_all("No zones today", [1, 2, 3]) == [(1, "no"), (2, "no"), (3, "no")]
+    assert LR.read_all("no", [1, 2, 3]) == [(None, "no")]               # "no" alone still answers its picture
+    assert not LR.more_than_labels("None of them are mine")              # only labels: no lesson
+    assert LR.more_than_labels(HIS_LIST.replace("1.3.7.", "none"))       # his other words: a lesson as well
+
+
+def test_none_as_a_plain_message_answers_the_newest_days_charts(bot, tg, where):
+    qids = _charts(where, 10)
+    bot.send_outbox()
+    u = tg.text("None of them are mine")                               # NOT a reply to a picture
+    bot.poll_once()
+    assert {r["qid"]: r["label"] for r in LR.read_replies(WORD, where.labels)} == {q: "no" for q in qids}
+    reply = tg.replies_to(u)[0]
+    assert reply.startswith("Saved for the charts of 01 Oct: your zones none; not yours 1, 2, 3, 4, 5, 6, 7, 8, 9, 10.")
+    assert _inbox(where) == []
+
+
+def test_his_list_as_a_reply_to_one_picture_answers_that_whole_day(bot, tg, where):
+    qids = _charts(where, 4)
+    bot.send_outbox()
+    tg.text("2 4", reply_to=_sent_id(tg, qids[0]))
+    bot.poll_once()
+    assert {r["qid"]: r["label"] for r in LR.read_replies(WORD, where.labels)} == dict(
+        zip(qids, ["no", "yes", "no", "yes"]))
+    assert _inbox(where) == []
+
+
+def test_a_line_of_numbers_is_a_lesson_when_no_label_chart_waits(bot, tg, where):
+    tg.text("1.3.7.")                                                  # no label charts at all
+    bot.poll_once()
+    assert len(_inbox(where)) == 1
+    qids = _charts(where, 3)
+    bot.send_outbox()
+    for q in qids:
+        tg.text("no", reply_to=_sent_id(tg, q))
+    tg.text("1 3")                                                     # every chart of the day is answered
+    bot.poll_once()
+    assert [r["label"] for r in LR.read_replies(WORD, where.labels)] == ["no", "no", "no"]
+    assert len(_inbox(where)) == 2
+
+
+def test_a_lesson_with_numbers_in_it_stays_a_lesson_while_charts_wait(bot, tg, where):
+    _charts(where, 3)
+    bot.send_outbox()
+    tg.text("Sell after 2 gaps, the stop at 1:4")
+    bot.poll_once()
+    assert LR.read_replies(WORD, where.labels) == [] and len(_inbox(where)) == 1
+
+
 def test_the_bots_label_path_draws_nothing():
     """The ONE bot reads replies and STATUS through light modules: no pictures library in its process."""
     import subprocess
@@ -312,8 +425,8 @@ def test_the_same_day_picks_the_same_charts_and_the_steps_are_kept():
     assert all(got.get(s, 0) == n for s, n in want.items() if (pool["step"] == s).sum() >= 3 * n)
 
 
-def test_never_the_same_zone_day_or_band_twice_and_one_days_charts_share_no_candle():
-    pool = _pool()
+def test_never_the_same_zone_day_or_candle_twice():
+    pool = _pool(n_days=800)                                          # 5-day charts: room for 4 days of 10
     sent: list[dict] = []
     for d in range(4):
         picks = daily.pick(pool, sent, WORD, DAY + dt.timedelta(d))
@@ -323,11 +436,21 @@ def test_never_the_same_zone_day_or_band_twice_and_one_days_charts_share_no_cand
         assert len(days) == len(set(days))                            # one chart per day of zones
         spans = sorted((p["src_first"], p["src_last"]) for p in picks)
         assert all(b[0] > a[1] for a, b in zip(spans, spans[1:]))     # ten different stretches of price
-        for p in picks:                                               # never the same band on candles shown before
+        for p in picks:                                               # #117: never a candle shown before, any band
             for s in sent:
-                shared = p["src_first"] <= pd.Timestamp(s["last"]) and pd.Timestamp(s["first"]) <= p["src_last"]
-                assert not (shared and min(p["hi"], s["hi"]) > max(p["lo"], s["lo"]))
+                assert not (p["src_first"] <= pd.Timestamp(s["last"]) and pd.Timestamp(s["first"]) <= p["src_last"])
         sent += _as_sent(picks)
+
+
+def test_the_charts_end_when_every_stretch_of_price_was_shown():
+    pool = _pool(n_days=60)                                           # room for about 12 charts of 5 days
+    sent: list[dict] = []
+    for d in range(10):
+        sent += _as_sent(daily.pick(pool, sent, WORD, DAY + dt.timedelta(d)))
+    assert 0 < len(sent) <= 60 // 5 + 1
+    assert daily.pick(pool, sent, WORD, DAY + dt.timedelta(10)) == []
+    spans = sorted((pd.Timestamp(s["first"]), pd.Timestamp(s["last"])) for s in sent)
+    assert all(b[0] > a[1] for a, b in zip(spans, spans[1:]))
 
 
 def test_when_no_chart_is_left_he_is_told_once(monkeypatch, tmp_path):
@@ -390,9 +513,28 @@ def test_a_day_of_charts_end_to_end(bars, tmp_path):
         assert pd.Timestamp(row["last"]).year <= 2020
         assert 0 <= row["step"] < len(config.LABELS_PER_STEP) and row["tier"] in (1, 2, 3)
     assert daily.send(WORD, today=DAY, outbox=box, m5=m5, h1=h1)["sent"] == 0     # once a day
-    # he stops answering: no new charts once LABELS_WAITING_MAX wait
-    daily.send(WORD, today=DAY + dt.timedelta(1), outbox=box, m5=m5, h1=h1)
-    assert daily.send(WORD, today=DAY + dt.timedelta(2), outbox=box, m5=m5, h1=h1)["sent"] == 0
+    # he does not answer: the next day brings no new charts (one day waits at most, #166), and says so
+    assert daily.send(WORD, today=DAY + dt.timedelta(1), outbox=box, m5=m5, h1=h1)["sent"] == 0
+    told = [json.loads(x) for x in box.read_text(encoding="utf-8").splitlines()][len(lines):]
+    assert len(told) == 1 and "still wait" in told[0]["text"] and "qid" not in told[0]
+
+
+def test_no_new_charts_while_a_day_waits_and_he_is_told_once_that_day(tmp_path):
+    daily.opt_in("opt in", "opt in", who="test", now=dt.datetime(2026, 10, 1, 20, 0))
+    charts = LR.charts_file(WORD)
+    charts.parent.mkdir(parents=True, exist_ok=True)
+    charts.write_text("".join(json.dumps({"qid": LR.qid(WORD, DAY, n), "day": f"{DAY:%Y-%m-%d}", "n": n}) + "\n"
+                              for n in range(1, config.LABELS_PER_DAY + 1)), encoding="utf-8")
+    box = tmp_path / "outbox.jsonl"
+    for _ in range(2):                                    # the job runs twice that day: one line only
+        out = daily.send(WORD, today=DAY + dt.timedelta(1), outbox=box)
+        assert out["sent"] == 0 and "told" in out["said"]
+    lines = [json.loads(x) for x in box.read_text(encoding="utf-8").splitlines()]
+    assert len(lines) == 1 and "qid" not in lines[0]
+    assert f"{DAY:%d %b}" in lines[0]["text"] and "none" in lines[0]["text"]
+    assert config.LABELS_WAITING_MAX == config.LABELS_PER_DAY             # one day's charts wait at most (#166)
+    assert daily.send(WORD, today=DAY + dt.timedelta(2), outbox=box)["sent"] == 0
+    assert len(box.read_text(encoding="utf-8").splitlines()) == 2         # a new day: told again, once
 
 
 @pytest.mark.data
@@ -460,3 +602,188 @@ def test_the_label_file_check_refuses_what_must_never_be_there():
             store.check(pd.DataFrame([{**ok, **bad}]))
     with pytest.raises(ValueError):
         store.check(pd.DataFrame([ok, ok]))
+
+
+# ============================================================================================ the next ones at once
+# His words, 7 Oct 2026: "you can send me that 200 or 600 things that needed me" - the next day's charts as soon as he
+# has answered, not at the next 21:00 (config.LABELS_NEXT_AT_ONCE, daily.send_next, started by every intake run).
+
+NO_BARS = dict(m5=pd.DataFrame(), h1=pd.DataFrame())
+LATE = dt.datetime.combine(DAY, dt.time(23, 30))
+
+
+def _no_drawing(monkeypatch) -> None:
+    """send without the price data: a pool of zones, and a picture that is only a file (drawing is tested above)."""
+    pool = _pool(n_days=800)
+    monkeypatch.setattr(daily, "candidates", lambda word, m5, h1: pool)
+    monkeypatch.setattr(daily.P, "hour_candles", lambda m5, a, b: None)
+    monkeypatch.setattr(daily.P, "calm", lambda h, lo, hi: 0.5)
+    monkeypatch.setattr(daily.P, "code_fingerprint", lambda: "test")
+
+    def draw(w, h, lo, hi, path, *, subject, shown=None):
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        Path(path).write_bytes(chart_picture(200, 120))
+        return SimpleNamespace(pixel_sha256=hashlib.sha256(subject.encode()).hexdigest())
+    monkeypatch.setattr(daily.P, "draw", draw)
+
+
+def _answer(day: dt.date, words: str = "2 5", n: int = 10) -> None:
+    """His plain list for that day's charts 1..n, saved as the bot saves it."""
+    LR.record(None, question=LR.qid(WORD, day, 1), got=LR.read_all(words, list(range(1, n + 1))), words=words,
+              message_id=1, when=dt.datetime.combine(day, dt.time(22, 0)), as_list=True, reply=False)
+
+
+def _lines(box: Path) -> list[dict]:
+    return [json.loads(x) for x in box.read_text(encoding="utf-8").splitlines()] if box.is_file() else []
+
+
+@pytest.mark.private                                    # the label count L15.2 needs is read from plan/PROGRESS.md
+def test_the_next_days_charts_come_as_soon_as_he_has_answered_every_chart(monkeypatch, tmp_path):
+    _no_drawing(monkeypatch)
+    daily.opt_in("opt in", "opt in", who="test", now=dt.datetime(2026, 10, 1, 20, 0))
+    box = tmp_path / "outbox.jsonl"
+    assert daily.send(WORD, today=DAY, outbox=box, **NO_BARS)["sent"] == 10
+    out = daily.send_next(WORD, now=LATE, outbox=box, **NO_BARS)
+    assert out["sent"] == 0 and "10 charts wait" in out["said"]                 # not before he answered
+    _answer(DAY, n=9)                                                           # 9 of the 10: one still waits
+    assert daily.send_next(WORD, now=LATE, outbox=box, **NO_BARS)["sent"] == 0
+    _answer(DAY)
+    have, before = daily.labels_so_far(), len(_lines(box))
+    out = daily.send_next(WORD, now=LATE, outbox=box, **NO_BARS)
+    nxt = DAY + dt.timedelta(days=1)
+    assert out["sent"] == 10 and {r["day"] for r in out["rows"]} == {f"{nxt}"}
+    assert all(r["early"] == LATE.isoformat(timespec="seconds") for r in out["rows"])
+    [intro, *charts] = _lines(box)[before:]
+    assert intro["id"] == f"labels-{WORD}-{nxt:%Y%m%d}-intro" and intro["text"].startswith("Zone charts, set 2: 10 more")
+    assert "Every chart is gold from 2016-2020" in intro["text"] and "as soon as you answer" in intro["text"]
+    assert f"\"charts of {nxt:%d %b}\", that date is only this set's name" in intro["text"]   # 7 Oct: "not this year"
+    assert f"Labels so far: {have} - the L15.2 test needs {daily.l152_needs()}." in intro["text"]
+    assert [c["qid"] for c in charts] == [LR.qid(WORD, nxt, k) for k in range(1, 11)]
+    assert all(c["text"].startswith(f"Zone chart {k} of 10 (set 2).") for k, c in enumerate(charts, 1))
+    assert daily.send_next(WORD, now=LATE, outbox=box, **NO_BARS)["sent"] == 0  # one day's charts wait at most
+    assert "already queued" in daily.send(WORD, today=nxt, outbox=box, **NO_BARS)["said"]   # that day's 21:00 run
+    _answer(nxt, "none")
+    out = daily.send_next(WORD, now=LATE, outbox=box, **NO_BARS)
+    assert {r["day"] for r in out["rows"]} == {f"{nxt + dt.timedelta(days=1)}"}
+    zones = [c["zone_id"] for c in LR.read_charts(WORD)]
+    assert len(zones) == 30 == len(set(zones))                                  # never the same chart twice
+
+
+def test_the_set_sent_early_is_for_today_at_the_earliest(monkeypatch, tmp_path):
+    _no_drawing(monkeypatch)
+    daily.opt_in("opt in", "opt in", who="test")
+    box = tmp_path / "outbox.jsonl"
+    daily.send(WORD, today=DAY, outbox=box, **NO_BARS)
+    _answer(DAY)
+    later = dt.datetime.combine(DAY + dt.timedelta(days=5), dt.time(8, 0))     # he answered 5 days later
+    assert {r["day"] for r in daily.send_next(WORD, now=later, outbox=box, **NO_BARS)["rows"]} == {f"{later.date()}"}
+
+
+def test_nothing_at_once_before_he_opts_in_before_the_first_day_or_with_the_switch_off(monkeypatch, tmp_path):
+    _no_drawing(monkeypatch)
+    box = tmp_path / "outbox.jsonl"
+    out = daily.send_next(WORD, outbox=box, **NO_BARS)                          # T9: never before his opt-in
+    assert out["sent"] == 0 and "not opted in" in out["said"] and not box.exists()
+    daily.opt_in("opt in", "opt in", who="test")
+    out = daily.send_next(WORD, outbox=box, **NO_BARS)                          # the first day's: the 21:00 task
+    assert out["sent"] == 0 and "no chart sent yet" in out["said"] and not box.exists()
+    daily.send(WORD, today=DAY, outbox=box, **NO_BARS)
+    _answer(DAY)
+    monkeypatch.setattr(config, "LABELS_NEXT_AT_ONCE", False)
+    out = daily.send_next(WORD, outbox=box, **NO_BARS)
+    assert out["sent"] == 0 and "is off" in out["said"]
+
+
+def test_two_senders_never_queue_the_same_day(monkeypatch, tmp_path):
+    from machine.host.lock import one_run
+    _no_drawing(monkeypatch)
+    daily.opt_in("opt in", "opt in", who="test")
+    box = tmp_path / "outbox.jsonl"
+    daily.send(WORD, today=DAY, outbox=box, **NO_BARS)
+    _answer(DAY)
+    with one_run(daily._lock_path(WORD)) as mine:                              # another run queues charts right now
+        assert mine
+        assert daily.send_next(WORD, now=LATE, outbox=box, **NO_BARS)["sent"] == 0
+        assert daily.send(WORD, today=DAY + dt.timedelta(days=1), outbox=box, **NO_BARS)["sent"] == 0
+    assert daily.send_next(WORD, now=LATE, outbox=box, **NO_BARS)["sent"] == 10  # free again: one set, not two
+
+
+def test_his_plain_list_answers_the_set_sent_early_through_the_bot(monkeypatch, bot, tg, where):
+    _no_drawing(monkeypatch)
+    daily.opt_in("opt in", "opt in", who="test")
+    daily.send(WORD, today=DAY, outbox=where.outbox, **NO_BARS)
+    bot.send_outbox()
+    tg.text("1 3 7")
+    bot.poll_once()
+    assert daily.send_next(WORD, now=LATE, outbox=where.outbox, **NO_BARS)["sent"] == 10
+    bot.send_outbox()
+    nxt = DAY + dt.timedelta(days=1)
+    u = tg.text("2")                                                           # NOT a reply: the set that waits
+    bot.poll_once()
+    got = {r["qid"]: r["label"] for r in LR.read_replies(WORD) if LR.parts(r["qid"])[1] == f"{nxt:%Y%m%d}"}
+    assert got == {LR.qid(WORD, nxt, k): "yes" if k == 2 else "no" for k in range(1, 11)}
+    assert tg.replies_to(u)[0].startswith(f"Saved for the charts of {nxt:%d %b}: your zones 2;")
+
+
+def test_when_his_labels_reach_l152s_need_he_is_told_once(monkeypatch, tmp_path):
+    _no_drawing(monkeypatch)
+    daily.opt_in("opt in", "opt in", who="test")
+    box = tmp_path / "outbox.jsonl"
+    daily.send(WORD, today=DAY, outbox=box, **NO_BARS)
+    need = daily.labels_so_far() + 10                                         # reached with these 10 answers
+    monkeypatch.setattr(daily, "l152_needs", lambda: need)
+    assert daily.send_next(WORD, now=LATE, outbox=box, **NO_BARS)["told"] is False
+    _answer(DAY)
+    out = daily.send_next(WORD, now=LATE, outbox=box, **NO_BARS)
+    assert out["told"] is True and out["sent"] == 10
+    [said] = [x for x in _lines(box) if x["id"] == f"labels-{WORD}-reached-{need}"]
+    assert said["text"].startswith(f"{need} labels now") and "paste L15.2" in said["text"] and "qid" not in said
+    intro = next(x for x in _lines(box) if x["id"].endswith("-intro") and "Zone charts, set" in x["text"])
+    assert f"Labels so far: {need}." in intro["text"] and "needs" not in intro["text"]
+    _answer(DAY + dt.timedelta(days=1))
+    assert daily.send_next(WORD, now=LATE, outbox=box, **NO_BARS)["told"] is False
+    assert sum(x["id"] == said["id"] for x in _lines(box)) == 1
+
+
+def test_l152s_need_is_the_number_next_prompt_reads():
+    from machine.tools import next_prompt as NP
+    rows = NP.parse_progress(config.PROGRESS_FILE.read_text(encoding="utf-8"))
+    assert daily.l152_needs() == next(r.labels_needed for r in rows if r.id == "L15.2") > 0
+
+
+@pytest.mark.parametrize("at_once,says", [(True, "The next ones come as soon as you answer."),
+                                          (False, "New charts come at the next 9 pm after you answer.")])
+def test_the_held_line_says_when_the_next_charts_come(monkeypatch, tmp_path, at_once, says):
+    monkeypatch.setattr(config, "LABELS_NEXT_AT_ONCE", at_once)
+    daily.opt_in("opt in", "opt in", who="test")
+    charts = LR.charts_file(WORD)
+    charts.parent.mkdir(parents=True, exist_ok=True)
+    charts.write_text("".join(json.dumps({"qid": LR.qid(WORD, DAY, n), "day": f"{DAY:%Y-%m-%d}", "n": n}) + "\n"
+                              for n in range(1, config.LABELS_PER_DAY + 1)), encoding="utf-8")
+    box = tmp_path / "outbox.jsonl"
+    daily.send(WORD, today=DAY + dt.timedelta(1), outbox=box)
+    [line] = _lines(box)
+    assert line["text"].endswith(says)
+
+
+def test_each_intake_run_sends_the_next_charts_first_and_a_failure_never_stops_it(monkeypatch):
+    from machine.intake import __main__ as IM
+    from machine.intake import state as S
+    calls: list[tuple] = []
+    monkeypatch.setattr(S, "run", lambda *a, **k: calls.append(("intake",)) or [])
+    monkeypatch.setattr(daily, "send_next", lambda word: calls.append(("next", word)) or
+                        {"sent": 0, "told": False, "said": "10 charts wait for his answer"})
+    log = config.LABELS_DIR / WORD / "daily.log"
+    assert IM.main(["run"]) == 0 and calls == [("next", WORD), ("intake",)]
+    assert not log.exists()                                                    # nothing done: no line every 30 min
+    monkeypatch.setattr(daily, "send_next", lambda word: {"sent": 10, "told": True, "said": "10 charts queued"})
+    assert IM.main(["run"]) == 0
+    assert "next at once: 10 charts queued + told: L15.2's need reached" in log.read_text(encoding="utf-8")
+
+    def broken(word):
+        raise RuntimeError("a picture rule broke")
+    monkeypatch.setattr(daily, "send_next", broken)
+    calls.clear()
+    assert IM.main(["run"]) == 0 and calls == [("intake",)]                    # the intake goes on
+    text = log.read_text(encoding="utf-8")
+    assert "next at once FAILED" in text and "a picture rule broke" in text

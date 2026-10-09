@@ -385,9 +385,10 @@ def touch_entries(bars: pd.DataFrame, tf: str, ruler: pd.Series | np.ndarray | N
       entry    a limit ON the line. The line moves, so it is the line's price settings "trendline_touch_fill_bars"
                candles after the moment it is known - the worse fill of that wait (the old engine's, AMBIGUITY F10;
                where it fills is a version, four-boxes B3-16)
-      hedge    past the line by settings "line_break_tolerance" x "line_touch_adr" of a day's range, measured at the
-               moment it is known ("a few pips past the line" is a version, B3-16; that it then moves with the line is
-               management - settings the_cover_follows_the_trendline, L19a)
+      hedge    past the line by settings "trendline_hedge_pad_adr" of a day's range, measured at the moment it is
+               known; None (version 1) = where the line counts as broken, "line_break_tolerance" x "line_touch_adr"
+               ("a few pips past the line" is a version, B3-16, L19c; that it then moves with the line is management -
+               settings the_cover_follows_the_trendline, L19a)
       extreme  the lowest low (a sell) / highest high (a buy) since the first touch - his "target = wedge low"
       trend_visible   #116 (see _trend_visible); touches_apart  every two touches at least 3 hours apart (rules.py)."""
     check_bars(bars, tf, ("high", "low", "close"))
@@ -398,7 +399,8 @@ def touch_entries(bars: pd.DataFrame, tf: str, ruler: pd.Series | np.ndarray | N
     touches4 = more_touches(bars, tf, table, ruler) if touches4 is None else touches4
     first_touch = int(settings.get("wedge_touch"))
     fill = int(settings.get("trendline_touch_fill_bars"))
-    pad = float(settings.get("line_break_tolerance")) * float(settings.get("line_touch_adr"))
+    pad = settings.get("trendline_hedge_pad_adr")       # M27 (L19c): None = the line's own break distance
+    pad = float(settings.get("line_break_tolerance")) * float(settings.get("line_touch_adr")) if pad is None else float(pad)
     gap = touch_gap_bars(tf)
     idx = bars.index
     h, lo = bars["high"].to_numpy(float), bars["low"].to_numpy(float)

@@ -22,6 +22,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -39,7 +40,18 @@ from machine.questions import pictures as P
 
 SETUPS = 3
 FILE, RECORD = "shown.jpg", "shown.json"
-ASK = "Are these 3 your idea?"
+DRAWING = 4       # the drawing's version (lesson 19: a saved thing carries what made it). A picture MADE but not sent
+                  # yet that an older drawing made is drawn again - the same setups - before the batch sends it.
+                  # 2 (1 Oct): a session level is named by its session ("London high · taken", his words for idea
+                  # #3), not "session high"; the footer names only the marks drawn.
+                  # 3 (7 Oct): no setup's chart shares a candle with a setup chart SENT before in any idea's picture
+                  # (seen_spans; his #117 "I don't want the same charts again") - idea #4's drawing 2 showed idea
+                  # #3's sell of 12 Jun 2018 20:05 again, the chart he had answered that morning.
+                  # 4 (9 Oct): his strong zones drawn as their box, a triangle as both its lines, a trendline as the
+                  # line with its touches numbered; the second gap named and one chart of it chosen - before, an
+                  # idea of his zone entry, zone breakout, triangle or trendline had NO picture (0 of 236 / 54 / 29 /
+                  # 11 setups passed the picture rules: each named a thing the chart did not draw).
+ASK ="Are these 3 your idea?"
 HOW = ("YES = all 3 are how you trade it. Then the machine tests it by itself.",
        "NO = say which number (1, 2 or 3) and a few words why.")
 
@@ -59,6 +71,11 @@ def load(idea: str) -> dict | None:
 
 def save(rec: dict) -> None:
     store._write(record_path(rec["idea"]), json.dumps(rec, indent=1, ensure_ascii=False) + "\n")
+
+
+def stale(rec: dict | None) -> bool:
+    """Made, not sent, and drawn by an older drawing (DRAWING): it is drawn again before it goes out."""
+    return bool(rec) and rec.get("status") == "made" and int(rec.get("drawing", 1)) < DRAWING
 
 
 def qid(idea: str, n: int = 1) -> str:
@@ -88,14 +105,66 @@ def spread(signals: list, n_tries: int = 60) -> list:
     return order
 
 
+def seen_spans() -> list[tuple[pd.Timestamp, pd.Timestamp]]:
+    """Every setup chart he was SENT in a picture of 3 setups, of any idea (each idea's shown.json and the kept
+    shown-<n>.json - one taken back counts: he saw it): (its first candle, its entry candle), MT5 server time. A record
+    made before 7 Oct 2026 keeps no first candle: the longest chart there can be (P.ONE_MAX candles before its entry)
+    stands in - never too short."""
+    out = []
+    for idea in store.ideas():
+        d = store.folder(idea)
+        for path in [d / RECORD, *sorted(d.glob("shown-*.json"))]:
+            try:
+                rec = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if not rec.get("sent"):
+                continue
+            for s in rec.get("setups") or []:
+                try:
+                    end = pd.Timestamp(s["end"])
+                    first = (pd.Timestamp(s["first"]) if s.get("first") else
+                             end - pd.Timedelta(minutes=5 * (P.ONE_MAX - 1)))
+                except (KeyError, TypeError, ValueError):
+                    continue
+                out.append((first, end))
+    return out
+
+
+def shown_before(panel: D.Panel, seen: list[tuple[pd.Timestamp, pd.Timestamp]] | None) -> bool:
+    """Does this chart share ANY candle with a setup chart he was sent before (seen_spans)? The zone charts' rule too
+    (machine/labels/daily._clash): every chart a stretch of price he has never seen - his #117."""
+    a, b = panel.bars.index[0], panel.bars.index[-1]
+    return any(a <= end and first <= b for first, end in seen or [])
+
+
+def the_test_enters(s) -> bool:
+    """An order with his #68 check (first_visit_from): does the tester really enter it? The chart draws a touch of the
+    entry as the entry, but when the spread kept a buy limit from filling and price turned away, the tester calls it
+    spent (fvg.first_visit) - such a setup is never shown as the idea's (7 Oct 2026). One replay on the 1-minute bars
+    of its own days (the tune years only)."""
+    if s.entry_type != "limit" or s.first_visit_from is None:
+        return True
+    from machine.data.bars import load_bars
+    from machine.tester import engine
+    a = pd.Timestamp(s.first_visit_from) - pd.Timedelta(hours=1)
+    b = min(pd.Timestamp(s.known_at) + pd.Timedelta(minutes=5 * P.LOOK_AHEAD),
+            pd.Timestamp(f"{config.TUNE_YEARS[-1]}-12-31 23:59"))
+    m1 = load_bars("1m", str(a.date()), str(b.date()))
+    return bool(engine.replay([s], m1, "5m", 1).trades)
+
+
 def choose(form: Idea, compiled, market, *, n: int = SETUPS, avoid: set[str] | None = None,
-           prefer: list[str] | None = None, log=print) -> list[P.Scene]:
+           prefer: list[str] | None = None, seen: list[tuple[pd.Timestamp, pd.Timestamp]] | None = None,
+           log=print) -> list[P.Scene]:
     """n scenes of different weeks (a sell and a buy when both exist), each fitting ONE 5-minute chart and passing
     every picture rule. Fewer when the idea does not have them. avoid: signal ids shown before (never twice, #117).
-    prefer: the setups of a picture taken back before he judged it (withdraw) - drawn again when all still pass."""
+    seen: the setup charts sent before in any idea's picture (seen_spans) - a chart with a candle of one is never
+    chosen (#117). prefer: the setups of a picture taken back before he judged it (withdraw) - drawn again when all
+    still pass."""
     m5 = market.bars("5m")
     comp = {"A": compiled}
-    chosen, weeks = [], set()
+    chosen, weeks, again_seen = [], set(), 0
     tmp = Path(tempfile.mkdtemp(prefix="l10b-"))
     try:
         if prefer:
@@ -105,15 +174,17 @@ def choose(form: Idea, compiled, market, *, n: int = SETUPS, avoid: set[str] | N
                 s = by_id.get(sid)
                 sc = None if s is None else P.scene(SimpleNamespace(signals={"A": s}, direction=s.direction), comp,
                                                     market)
-                if sc is None or one_chart(form, sc, m5) is None or lint.check(
+                panel = None if sc is None else one_chart(form, sc, m5)
+                if panel is None or shown_before(panel, seen) or lint.check(
                         D.render(picture(form, [sc], m5, subject="trial"), tmp / "trial.jpg"), shown=tmp / "n.jsonl"):
                     break
                 again.append(sc)
             if len(again) == len(prefer):
-                log(f"{form.id}: the same {len(again)} setups drawn again (the picture was taken back, not judged)")
+                log(f"{form.id}: the same {len(again)} setups drawn again (he never judged them)")
                 return again
         by_band = spread([s for s in compiled.signals if s.id not in (avoid or set())])
         band_size = max(1, len(by_band) // SETUPS)
+        second = second_gaps(compiled)
         for band in range(SETUPS):
             want_dir = None
             if band == SETUPS - 1 and chosen and len({s.direction for s in compiled.signals}) > 1:
@@ -123,12 +194,20 @@ def choose(form: Idea, compiled, market, *, n: int = SETUPS, avoid: set[str] | N
                 by_band[band * band_size:]
             if want_dir:
                 pool = [s for s in pool if s.direction == want_dir] + [s for s in pool if s.direction != want_dir]
+            if band == 0 and second:                     # the part that makes it HIS second-gap idea, on one chart -
+                pool = [s for s in by_band if s.id in second] + pool    # else all 3 can be plain first gaps (9 Oct)
             for s in pool:
                 week = pd.Timestamp(s.known_at).isocalendar()[:2]
                 if week in weeks:
                     continue
                 sc = P.scene(SimpleNamespace(signals={"A": s}, direction=s.direction), comp, market)
-                if sc is None or one_chart(form, sc, m5) is None:
+                if sc is not None and not the_test_enters(s):
+                    continue
+                panel = None if sc is None else one_chart(form, sc, m5)
+                if panel is None:
+                    continue
+                if shown_before(panel, seen):
+                    again_seen += 1
                     continue
                 if lint.check(D.render(picture(form, [sc], m5, subject="trial"), tmp / "trial.jpg"),
                               shown=tmp / "none.jsonl"):
@@ -140,7 +219,8 @@ def choose(form: Idea, compiled, market, *, n: int = SETUPS, avoid: set[str] | N
                 break
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
-    log(f"{form.id}: {len(chosen)} setups chosen for the SHOWN picture from {len(compiled.signals)} signals")
+    log(f"{form.id}: {len(chosen)} setups chosen for the SHOWN picture from {len(compiled.signals)} signals"
+        + (f" ({again_seen} skipped: a candle of a chart he was sent before, #117)" if again_seen else ""))
     return chosen
 
 
@@ -166,9 +246,87 @@ def _story(form: Idea, sc: P.Scene) -> tuple[list, list[pd.Timestamp]]:
         times += [pd.Timestamp(f[k]) for k in ("bar", "first_bar") if f.get(k) is not None]
         if f.get("zone_lo") is not None and f.get("zone_hi") is not None:
             side = (step.params or {}).get("side", "sell_top_buy_bottom")
+            if step.block == "adr_zone_break":            # L6-new: a sell breaks out BELOW the green zone (#76)
+                side = "sell_bottom_buy_top"
             name, color = ZONE_NAMES[(sc.direction == "sell") == (side == "sell_top_buy_bottom")]
             known = pd.Timestamp(f["known_at"]) if f.get("known_at") is not None else None
             items.append((known, D.Zone(float(f["zone_lo"]), float(f["zone_hi"]), name=name, color=color)))
+        elif step.block in STRONG_ZONE_STEPS and f.get("lo") is not None and f.get("hi") is not None:
+            known = pd.Timestamp(f["known_at"]) if f.get("known_at") is not None else None    # L6b.2: his strong
+            items.append((known, D.Zone(float(f["lo"]), float(f["hi"]), name=zone_name(f))))  # zone, its box
+    return items, [t for t in times if t <= sc.end]
+
+
+STRONG_ZONE = "strong zone"
+STRONG_ZONE_STEPS = ("zone_entry", "zone_break", "zone")
+
+
+def zone_name(f: dict) -> str:
+    """'strong zone · 5-min chart, 5 days': the candles it was counted on - its zone_id starts with the window's name
+    (settings zone_windows, L6b.2: "week" = the 5-minute candles of the last 5 days, NOT the week chart)."""
+    from machine.blocks import zones
+    name = str(f.get("zone_id") or "").split(":", 1)[0]
+    for w, tf, days, _, _ in zones.windows():
+        if w == name:
+            chart = "hour chart" if tf == "1h" else "5-min chart" if tf == "5m" else f"{tf} chart"
+            return f"{STRONG_ZONE} · {chart}, {days} day{'s' if days != 1 else ''}"
+    return STRONG_ZONE
+
+
+LINE_MAX = 180   # candles: a chart with one of his LINES (a triangle, a trendline) may be one hour longer than
+                 # P.ONE_MAX - the line's first touch must be on it. Claude's number (his #110: "whichever you think
+                 # visually good for me"): 9 Oct, of his triangle false breaks on 2016-2020, 6 of 25 too-long
+                 # stories were 151-179 candles; the rest 215 to 2,026 - one 5-minute chart cannot hold those.
+LINE_ID = re.compile(r"(line_high|line_low):(\w+):(\d{4}-\d\d-\d\d \d\d:\d\d):(\d{4}-\d\d-\d\d \d\d:\d\d)")
+
+
+def anchors(line_id: str, m5: pd.DataFrame) -> tuple[tuple[pd.Timestamp, float], ...] | None:
+    """His line rebuilt from the two wick ends it was drawn through (#112; its id names them, L6b.1): the highs of a
+    line_high, the lows of a line_low, each at its own candle's time (an hour line's wick = the hour's highest 5-minute
+    high). None when the id is not a line's or a candle is missing."""
+    from machine.tester.models import TF_MINUTES
+    m = LINE_ID.fullmatch(str(line_id))
+    if m is None or m.group(2) not in TF_MINUTES:
+        return None
+    kind, tf, a, b = m.groups()
+    width = pd.Timedelta(minutes=TF_MINUTES[tf] - 5)
+    out = []
+    for t in (pd.Timestamp(a), pd.Timestamp(b)):
+        part = m5.loc[t:t + width, "high" if kind == "line_high" else "low"]
+        if part.empty:
+            return None
+        out.append((t, float(part.max() if kind == "line_high" else part.min())))
+    return tuple(out)
+
+
+def _lines(form: Idea, sc: P.Scene, m5: pd.DataFrame) -> tuple[list, list[pd.Timestamp]]:
+    """His lines a step found, drawn the way the picture rules want them (#113 rule 3): a trendline (his Type 2, the
+    3rd touch) as the line with touches 1, 2, 3 numbered; a triangle as BOTH its lines, one shape, drawn to where price
+    pushed out of it. A 4th-touch trendline is not drawn (where the 3rd touch was is not known here): that setup is
+    not chosen for the picture."""
+    facts = _facts(sc)
+    items, times = [], []
+    for step in form.steps:
+        f = facts.get(step.id) or {}
+        if step.block == "trendline_touch" and f.get("line_id") and f.get("bar") is not None and f.get("touch") == 3:
+            got = anchors(f["line_id"], m5)
+            if got is None:
+                continue
+            (t1, p1), (t2, p2) = got
+            touch = pd.Timestamp(f["bar"])
+            items.append(D.Line((t1, p1), (t2, p2), touches=(t1, t2, touch), name="trendline", extend_to=sc.end))
+            times += [t1, t2, touch]
+        elif step.block == "triangle" and f.get("tri_id") and f.get("bar") is not None:
+            ids = str(f["tri_id"]).split(":", 2)[-1].split("|")              # "tri:<chart>:<line>|<line>"
+            got = [anchors(i, m5) for i in ids]
+            if len(got) != 2 or None in got:
+                continue
+            upto = max([pd.Timestamp(f["bar"]), *[pd.Timestamp(g["bar"]) for g in facts.values()
+                                                  if g.get("level_id") == f["tri_id"] and g.get("bar") is not None]])
+            for (t1, p1), (t2, p2) in got:
+                items.append(D.Line((t1, p1), (t2, p2), touches=(t1, t2), name="triangle", extend_to=upto,
+                                    group=str(f["tri_id"])))
+                times += [t1, t2]
     return items, [t for t in times if t <= sc.end]
 
 
@@ -207,7 +365,12 @@ def _break(form: Idea, sc: P.Scene, m5: pd.DataFrame) -> tuple[list, list[pd.Tim
 
 
 STEP_WORDS = {"sweep": "taken", "false_breakout": "false break", "break_of_structure": "break",
-              "gap_of_the_move": "first gap", "premium_discount": "at the zone"}
+              "gap_of_the_move": "first gap", "premium_discount": "at the zone",
+              "adr_zone_break": "closed past the zone",
+              "zone_entry": "a level just outside a strong zone taken → at the zone",
+              "zone_break": "a strong zone broken for real", "zone": "at a strong zone",
+              "trendline_touch": "3rd touch of the trendline", "triangle": "a triangle"}
+GAP_WORDS = {"second": "first gap, or the second when the trend is very strong", "deepest": "biggest gap of the move"}
 
 
 def why_line(form: Idea) -> str:
@@ -218,28 +381,52 @@ def why_line(form: Idea) -> str:
             target = True                                # its default side is the target's (compile.py)
             continue
         short = s.what if len(s.what) <= 24 else s.block.replace("_", " ")
-        parts.append(STEP_WORDS.get(s.block, short))
+        word = STEP_WORDS.get(s.block, short)
+        if s.block == "gap_of_the_move":                 # settings which_gap_of_the_move (L19b, his #124)
+            word = GAP_WORDS.get(str((form.settings or {}).get("which_gap_of_the_move", "first")), word)
+        parts.append(word)
     text = "Why it enters: " + " → ".join(parts) + " → entry"
     return text + (" · it aims at \"goes here\"" if target else "")
+
+
+def second_gaps(compiled) -> set[str]:
+    """The setups that entered at the move's SECOND gap (settings which_gap_of_the_move = 'second', L19b): with a
+    plain first-gap idea, none. About 130 of 4,850 for his second-gap entry on 2016-2020 - a picture spread by year
+    alone showed only first gaps."""
+    return {x.get("signal") for x in getattr(compiled, "trace", None) or []
+            if any(isinstance(v, dict) and v.get("gap_rank") == 1 for v in (x.get("facts") or {}).values())}
 
 
 def one_chart(form: Idea, sc: P.Scene, m5: pd.DataFrame) -> D.Panel | None:
     """One setup's chart: its whole story on ONE 5-minute chart that ends at its entry candle (None: too long)."""
     items, times, _ = P.items_for(form, sc, {"A": "A"}, m5)
     brk, brk_times = _break(form, sc, m5)
-    items, times = [*brk, *items], [*times, *brk_times]
+    shapes, shape_times = _lines(form, sc, m5)
+    items, times = [*brk, *shapes, *items], [*times, *brk_times, *shape_times]
     zones, step_times = _story(form, sc)
     e = int(m5.index.get_loc(sc.end))
     start = max(0, min([int(m5.index.searchsorted(t)) for t in times + step_times] + [e]) - P.BEFORE)
-    if e - start + 1 > P.ONE_MAX:
+    if e - start + 1 > (LINE_MAX if shapes else P.ONE_MAX):
         return None
     bars = m5.iloc[start:e + 1]
     day0 = pd.Timestamp(sc.end).normalize()       # the zones are the broker day's (server clock): its first candle on
     for _, z in zones:                            # the chart, never a day before it
         s = bars.index[0] if day0 <= bars.index[0] else bars.index[min(int(bars.index.searchsorted(day0)),
                                                                        len(bars) - 1)]
-        items.append(D.Zone(z.lo, z.hi, name=z.name, start=s, color=z.color))
+        items.append(D.Zone(z.lo, z.hi, name=z.name, start=None if z.name.startswith(STRONG_ZONE) else s,
+                            color=z.color))              # a strong zone was there days before: the whole chart
     return D.Panel(bars, "5m", [D.Candles(), *items], "", role="main", entry_at=sc.end)
+
+
+def footer(form: Idea, scenes: list[P.Scene], rows: list) -> str:
+    """What the marks mean - only the marks this picture draws (his rule: a picture draws every thing it names; idea
+    #3's first picture said "B1 = the buy" and "two touches of a pair" over 3 sells with no pair)."""
+    sides = {sc.direction for sc in scenes}
+    pair = any(isinstance(x, D.Line) and x.touches for row in rows for p in row for x in p.items)
+    parts = [*(["S1 = the sell"] if "sell" in sides else []), *(["B1 = the buy"] if "buy" in sides else []),
+             *(["1, 2 = two touches of a pair"] if pair else []),
+             *([BREAK_MEANS] if any(x.block == "break_of_structure" for x in form.steps) else [])]
+    return " · ".join(parts)
 
 
 def picture(form: Idea, scenes: list[P.Scene], m5: pd.DataFrame, *, subject: str) -> D.Picture:
@@ -258,8 +445,7 @@ def picture(form: Idea, scenes: list[P.Scene], m5: pd.DataFrame, *, subject: str
         sub=f"{n} setup{'s' if n != 1 else ''} the machine found by itself in 2016-2020. Each chart ends at its "
             f"entry candle.\n{why_line(form)}",
         rows=rows, question=D.Question(ASK if n == SETUPS else f"Are these {n} your idea?", HOW),
-        footer_left="S1 = the sell · B1 = the buy · 1, 2 = two touches of a pair"
-                    + (f" · {BREAK_MEANS}" if any(x.block == "break_of_structure" for x in form.steps) else ""),
+        footer_left=footer(form, scenes, rows),
         footer_right="",                          # said at the top; the footer needs the room (the break)
         entry_at=max(sc.end for sc in scenes), entry_tf="5m")
 
@@ -302,14 +488,16 @@ def make(idea: str, market, *, now: dt.datetime | None = None, compile_fn=None, 
     it). A record already made is returned as it is (never drawn twice). After his NO the old one is kept apart and a
     new one is made from other setups."""
     rec = load(idea)
-    if rec is not None and rec.get("status") not in ("failed", "no", "withdrawn"):
+    if rec is not None and rec.get("status") not in ("failed", "no", "withdrawn") and not stale(rec):
         return rec
     n, avoid, prefer = 1, set(), None
     if rec is not None:
         avoid = {x["signal"] for x in rec.get("setups", [])} | set(rec.get("avoid", []))
         n = rec.get("n", 1)
-        if rec["status"] == "withdrawn":                 # taken back before he judged it: the same setups, drawn anew
-            prefer, avoid = [x["signal"] for x in rec.get("setups", [])], set(rec.get("avoid", []))
+        if rec["status"] == "withdrawn" or stale(rec):   # taken back before he judged it, or never sent: the same
+            prefer, avoid = [x["signal"] for x in rec.get("setups", [])], set(rec.get("avoid", []))   # setups anew
+            log(f"{idea}: the picture of 3 setups is drawn again ({rec['status']}, drawing "
+                f"{rec.get('drawing', 1)} -> {DRAWING})")
         if rec["status"] in ("no", "withdrawn"):
             archive(idea, rec)
             n += 1
@@ -319,13 +507,13 @@ def make(idea: str, market, *, now: dt.datetime | None = None, compile_fn=None, 
         from machine.ideas.compile import compile_idea as compile_fn
     readings = first_readings(form)
     c = compile_fn(form, market, readings=readings, trace=True)
-    scenes = choose(form, c, market, avoid=avoid, prefer=prefer, log=log)
-    rec = {"idea": idea, "n": n, "qid": qid(idea, n), "made": now.isoformat(timespec="seconds"),
+    scenes = choose(form, c, market, avoid=avoid, prefer=prefer, seen=seen_spans(), log=log)
+    rec = {"idea": idea, "n": n, "qid": qid(idea, n), "made": now.isoformat(timespec="seconds"), "drawing": DRAWING,
            "readings": readings, "version_id": c.version_id, "signals": len(c.signals), "setups": [],
            "avoid": sorted(avoid), "status": "failed", "replies": []}
     if len(scenes) < SETUPS:
-        rec["why"] = (f"only {len(scenes)} of {len(c.signals)} setups fit one 5-minute chart and pass every picture "
-                      "rule - a Claude session looks at it")
+        rec["why"] = (f"only {len(scenes)} of {len(c.signals)} setups fit one 5-minute chart, pass every picture "
+                      "rule and share no candle with a chart he was sent before - a Claude session looks at it")
         save(rec)
         raise ShownError(rec["why"])
     path = store.folder(idea) / FILE
@@ -339,10 +527,10 @@ def make(idea: str, market, *, now: dt.datetime | None = None, compile_fn=None, 
     rec.update(status="made", picture={"file": _rel(path), "subject": pic.subject, "pixel_sha256": drawn.pixel_sha256,
                                        "lint": f"all {len(lint.RULES)} rules pass",
                                        "texts": [t.text for t in drawn.texts]},
-               setups=[{"n": k, "direction": sc.direction, "end": str(sc.end),
+               setups=[{"n": k, "direction": sc.direction, "first": str(row[0].bars.index[0]), "end": str(sc.end),
                         "end_ist": to_ist(sc.end).strftime("%d %b %Y %H:%M"),
                         "signal": next(s.id for s in sc.signals.values() if s is not None)}
-                       for k, sc in enumerate(scenes, 1)])
+                       for k, (sc, row) in enumerate(zip(scenes, pic.rows), 1)])
     save(rec)
     log(f"{idea}: SHOWN picture made -> {_rel(path)}")
     return rec

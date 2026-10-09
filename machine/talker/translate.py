@@ -32,6 +32,7 @@ Answers are cached by (prompt hash, model) - machine/talker/llm.py.
 """
 from __future__ import annotations
 
+import copy
 import csv
 import dataclasses
 import json
@@ -447,6 +448,32 @@ def _wait(v: Any, where: str, first: bool) -> Any:
 KIND_FAMILIES = C.KIND_FAMILIES                # compile.Kind: the side comes from the trade's direction
 family_kinds = C.family_kinds                  # "session_high" -> "session" (one definition: the compiler's, L6b.3)
 
+# strategy.md section 2 (G8): "If price took the target-side liquidity before coming back -> no entry" - on every limit
+# order at a gap, as his own entries carry it (machine/entries/forms.py). Code adds it, never the talker: idea #4's
+# form (7 Oct 2026) was drafted without it, and his NO to its setup 1 was a buy filled 7.5 hours late.
+G8_RULE = {"name": "target_reached_first", "params": {},
+           "sources": [{"ref": "default: strategy.md section 2 G8 'If price took the target-side liquidity before "
+                               "coming back -> no entry' (#68, #119)"}]}
+# his #68 the same way (rules.py only_the_first_visit_back_counts; strategy-understanding §65e, §66cg): the order fills
+# only on price's FIRST visit back into the setup's gaps - his NO to idea #4's setup 1 (7 Oct 2026) was a buy filled
+# after price had come back into the move's second gap and turned away
+FIRST_VISIT_RULE = {"name": "price_comes_back_into_another_gap_first", "params": {},
+                    "sources": [{"ref": "default: rules.py only_the_first_visit_back_counts (LEARNED #68; "
+                                        "strategy-understanding §65e, §66cg)"}]}
+
+
+def with_his_gap_rules(form: dict) -> dict:
+    """The form with G8's rule and his #68 first-visit rule added when its entry is a limit at a gap step's price -
+    each only when it is not there yet."""
+    e = form.get("entry") or {}
+    at = str(e.get("at") or "")
+    step = next((s for s in form.get("steps", []) if s.get("id") == at.split(".")[0]), None)
+    if e.get("how") != "limit" or step is None or step.get("block") != "gap_of_the_move":
+        return form
+    have = {r.get("name") for r in form.get("do_not_enter", [])}
+    add = [copy.deepcopy(r) for r in (G8_RULE, FIRST_VISIT_RULE) if r["name"] not in have]
+    return {**form, "do_not_enter": [*form.get("do_not_enter", []), *add]} if add else form
+
 
 def to_form(w: dict, idea_id: str, words: str) -> dict:
     """The tool's answer -> the dict machine.ideas.form.Idea loads. Raises WireError."""
@@ -668,7 +695,7 @@ def build(words: str, answer: llm.Answer | None, g: Applied, searches: tuple[Sea
         if key not in prior_keys():
             d.unknown_citations.append(f"already_seen {key!r} is not an idea_key of prior-tries.csv")
     try:
-        form_dict = to_form(w, idea_id, words)
+        form_dict = with_his_gap_rules(to_form(w, idea_id, words))
         d.form = Idea.load(form_dict)
     except (WireError, FormError, KeyError, TypeError) as err:
         d.problems.append(f"{type(err).__name__}: {err}")

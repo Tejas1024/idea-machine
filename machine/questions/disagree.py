@@ -81,7 +81,7 @@ class Disagreement:
 def key(s: Signal) -> tuple:
     """The order itself: two readings trade the same when this is the same."""
     return (s.direction, pd.Timestamp(s.known_at), s.entry_type, s.entry_price, s.stop, tuple(s.targets),
-            s.cancel_at)
+            s.cancel_at, s.first_visit_from, s.first_visit_to)        # his #68 window changes which fills count
 
 
 def compare_signals(by_reading: dict[str, list[Signal]], *, idea: str = "", part: str = "",

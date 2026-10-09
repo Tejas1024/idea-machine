@@ -1,0 +1,51 @@
+# Docker gets ONLY what git keeps (L16.2). On Tejas's PC this folder also holds .env (the bot's key), his personal
+# files, 1 GB of price data, the live alerts' files and the old bot's key files - none of it may enter an image.
+# So: leave out everything, let in the tracked folders and files, then leave out again what .gitignore leaves out.
+*
+!.github/
+!.dockerignore
+!.env.example
+!.gitattributes
+!.gitignore
+!.gitleaksignore
+!CLAUDE.md
+!PRIVATE-PARTS.md
+!Dockerfile
+!README.md
+!compose.yaml
+!pyproject.toml
+!requirements.txt
+!requirements-live.txt
+!requirements-search.txt
+!requirements-eyes.txt
+!docs/
+!machine/
+!old/
+!plan/
+!public/
+!strategy/
+!tests/
+!data/usd_inr.csv
+!data/swap.csv
+!data/news/signs.csv
+!data/news/dgs2.csv
+
+# inside those, what .gitignore leaves out
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.hypothesis
+**/*.tmp
+**/*.joblib
+**/*.pkl
+**/*.npz
+**/.env
+**/*.env
+**/mlruns
+old/build/data
+old/ml/data/fastbt*
+old/ml/agent/agent_config.json
+old/ml/agent/state.json
+old/ml/agent/clock.json
+old/ml/agent/logs
+old/ml/logs

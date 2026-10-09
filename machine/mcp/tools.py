@@ -51,6 +51,7 @@ from machine.ideas.form import LOCKED_FROM, SLICE_DIMENSIONS, STATES, FormError,
 from machine.mcp import versions as V
 from machine.mcp.versions import Refused
 from machine.referee import prior, splits, trials
+from machine.tester import management as MG
 
 TUNE = splits.years_text(config.TUNE_YEARS)
 CHECK = splits.years_text(config.CHECK_YEARS)
@@ -110,6 +111,7 @@ class Workbench:
     send: Callable | None = None             # machine.report.build.send
     load_bars: Callable | None = None        # (tf, start, end) -> bars (machine.data.bars.load_bars)
     prices_hash: Callable | None = None      # () -> the 1-minute prices' content hash
+    hedged: Callable | None = None           # machine.tester.management.research_run (L19c): his hedge, his management
     log: Callable = print
     _markets: dict = field(default_factory=dict, repr=False)
 
@@ -153,6 +155,8 @@ class Workbench:
         if name == "prices_hash":
             from machine.data import bars
             return bars.m1_fingerprint
+        if name == "hedged":
+            return MG.research_run
         raise KeyError(name)
 
 
@@ -352,8 +356,16 @@ def signals_of(idea: str, rec: dict, bench: Workbench) -> list:
         known = [pd.Timestamp(s.known_at) for s in c.signals]   # on 1 Jan) belongs to 2020: one minute back
         inside_tune(f"{rec['version_id']}'s signals", min(known), max(known) - pd.Timedelta(minutes=1))
     _write_cache(idea, rec["version_id"], {"key": key, "version_id": rec["version_id"],
-                                           "signals": [s.model_dump(mode="json") for s in c.signals]})
+                                           "signals": [s.model_dump(mode="json") for s in c.signals],
+                                           "moves": _moves(c)})
     return c.signals
+
+
+def _moves(c) -> dict[str, float]:
+    """M27: signal id -> its trendline's slope in price per candle of the idea's chart (the hedge moves with it)."""
+    from machine.tester.models import TF_MINUTES
+    return {sid: float(d["slope"]) * TF_MINUTES[c.tf] / TF_MINUTES[d["tf"]]
+            for sid, d in (getattr(c, "hedge_lines", None) or {}).items()}
 
 
 def _years_of(f: dict) -> set[int]:
@@ -444,7 +456,9 @@ def get_idea(idea: str) -> dict:
         "already_seen_by_the_old_project": prior.already_seen(key, config.TUNE_YEARS + config.CHECK_YEARS).text(),
         "how_versions_are_made": ("a version changes only the timeframe (dimension 1) or the idea's own numbers - "
                                   "level, stop, target, wait (dimension 10) - and chooses a reading for every VERSION "
-                                  "part; see list_blocks"),
+                                  "part; see list_blocks. A hedge idea may also change his management's TEST rows "
+                                  "('exit.management.<name>', list_blocks 'management_a_version_may_change'): such a "
+                                  "version runs WITH HIS HEDGE, beside version 1 of his management on the same signals"),
     }
 
 
@@ -458,11 +472,16 @@ def list_blocks() -> dict:
     fixed = [{"name": k, "value": _plain(r.value), "means": r.means, "taught": r.taught}
              for k, r in rules.FIXED.items()]
     numbers = [{"name": k, "value": s.value, "who": s.who, "means": s.means}
-               for k, s in settings.ALL.items() if s.status == "test" and V.is_number(s.value)]
+               for k, s in settings.ALL.items() if s.status == "test" and V.is_number(s.value)
+               and k not in MG.RETIRED and k not in MG.VERSIONS]
     return {
         "blocks": C.describe(),
         "his_fixed_rules": fixed,
         "settings_a_version_may_change": numbers,
+        "management_a_version_may_change": MG.describe(),
+        "his_fixed_management": [{"row": row, "rule": m.rule, "taught": m.taught, "carried_by": list(m.carried_by)}
+                                 for row, m in rules.MANAGEMENT.items()],
+        "management_not_a_version": MG.OTHER,
         "version_rules": V.__doc__,
         "slice_dimensions": list(SLICE_DIMENSIONS),
         "slice_conditions": conditions.describe(),
@@ -489,6 +508,55 @@ def search_docs(query: str, hits: int = 5) -> dict:
             "hits": [{"id": h.id, "source": h.source, "date": h.date,
                       "where": f"{h.path}:{h.line}" if h.line else h.path, "quote": h.quote, "passes": h.passes}
                      for h in a.hits[:hits]]}
+
+
+# ================================================================================================= 3b. get_strategy
+
+@tool
+def get_strategy() -> dict:
+    """His WHOLE strategy (L19d) as the machine holds it - the entries in it (his words, steps, entry, hedge, target),
+    the entries that wait for his words, how one trade at a time works, his management (fixed rows, and the test rows
+    a version may change), what a version may change, the version budget, the years, already seen - and NO money."""
+    from machine.strategy import research as SR
+    from machine.strategy import whole as W
+    years = config.TUNE_YEARS + config.CHECK_YEARS
+
+    def one(e) -> dict:
+        d = e.idea().model_dump(mode="json")
+        return {"id": e.id, "title": e.title, "his_words": d["words"], "steps": d["steps"], "entry": d["entry"],
+                "hedge": d["exit"], "targets": d["targets"], "do_not_enter": d["do_not_enter"],
+                "filters": d["filters"], "sources": d["sources"], "how_often_he_sees_it": e.his_count or None,
+                "checks_while_the_order_waits": list(e.fill_checks),
+                "already_seen_alone": prior.already_seen(e.seen, years).text()}
+
+    waits = W.waiting()
+    b = SR.budget()
+    plan = SR.load_plan()
+    return {
+        "strategy": W.STRATEGY, "what_it_is": W.WHAT_IT_IS,
+        "entries_in": [one(e) for e in W.entries_in()],
+        "entries_waiting": [{"id": eid, "title": forms_title(eid), "why": why} for eid, why in waits.items()],
+        "one_trade_at_a_time": {"his_rule": "M18 (#55): one trade at a time across all of his entries; a waiting order "
+                                            "is cancelled by a newer setup of any entry (M39)",
+                                "a_version_may_try": f"'{W.AT_ONCE}' = '{W.PER_ENTRY}': one trade at a time PER entry "
+                                                     "type (T12 marks it a test version; he never approved it, #118)"},
+        "his_fixed_management": [{"row": row, "rule": m.rule, "taught": m.taught}
+                                 for row, m in rules.MANAGEMENT.items()],
+        "management_a_version_may_change": MG.describe(),
+        "management_not_a_version": MG.OTHER,
+        "what_a_version_may_change": W.__doc__.split("A VERSION of the whole")[1].split("Money:")[0].strip(),
+        "version_budget": b,
+        "plan_saved": None if plan is None else {"sha256": plan["sha256"], "made_at": plan["made_at"]},
+        "years": {"tune": f"{TUNE} - versions are tried and ONE is chosen here",
+                  "check": f"{CHECK} - opened ONCE for the family, for the chosen version only",
+                  "sealed": "2024 on - never (LEARNED #96, #104)"},
+        "already_seen_by_the_old_project": prior.already_seen(W.SEEN_KEY, years).text(),
+    }
+
+
+def forms_title(entry_id: str) -> str:
+    from machine.entries import forms
+    return forms.get(entry_id).title
 
 
 # ================================================================================================= 4. propose_version
@@ -531,8 +599,15 @@ def run_version(idea: str, version: str, how: str = "tune", bench: Workbench | N
     if (idea, version) not in fam["tried"] and len(fam["tried"]) >= fam["budget"]:
         raise Refused(f"the {fam['root']} family has tried {len(fam['tried'])} versions - the budget is "
                       f"{fam['budget']} (config.VERSION_BUDGET)")
+    mg = MG.in_manager(rec.get("changes") or {})
     if how == "walk-forward":
+        if mg:
+            raise Refused(f"{version} changes his management ({', '.join(mg)}) - it is judged WITH HIS HEDGE (how = "
+                          "'tune' runs it through the hedging tester, beside version 1 of his management). Walk-forward "
+                          "judges the plain-stop versions.")
         return _walk_forward(idea, rec, bench)
+    if mg:
+        return _run_hedged(idea, rec, mg, bench)
     done = _tester_file(idea, version)
     cached = _read_cache(idea, version)
     if done is not None and cached.get("trades") is not None and cached.get("key") == _cache_key(rec, bench):
@@ -562,10 +637,69 @@ def run_version(idea: str, version: str, how: str = "tune", bench: Workbench | N
                      "tried) and opens the check years once for it.")}
 
 
+def _hedging_file(idea: str, version: str) -> dict | None:
+    got = [f for f in trials.load() if f.get("kind") == MG_KIND and f.get("idea_id") == idea
+           and f.get("version_id") == version]
+    return got[-1] if got else None
+
+
+MG_KIND = "hedging"
+HEDGED_KEEP = ("signals", "trades", "won", "win_pct", "net_inr_total", "net_inr_per_trade", "positions",
+               "cost_inr_total", "per_year", "worst_year", "hedged_trades", "hedges", "closes_while_hedged",
+               "days_open_median", "days_open_max", "ended_by", "test_rows_acted", "setups_skipped", "not_filled",
+               "open_at_end")
+
+
+def _hedged_numbers(summary: dict) -> dict:
+    return {k: summary.get(k) for k in HEDGED_KEEP}
+
+
+def _run_hedged(idea: str, rec: dict, mg: dict, bench: Workbench) -> dict:
+    """A management version (L19c): its signals with his hedge, under its management, beside version 1 of his
+    management on the SAME signals (only the management differs). One trial file (kind "hedging") - the try."""
+    version = rec["version_id"]
+    key = _cache_key(rec, bench)
+    done = _hedging_file(idea, version)
+    cached = _read_cache(idea, version)
+    seen = prior.already_seen(_key(rec), config.TUNE_YEARS)
+    head = {"version": version, "years": TUNE, "about": rec["about"], "cost": COST, "lots": "0.01 a leg",
+            "how": "WITH HIS HEDGE: the hedging tester (L19a) with this version's management (T12 test rows, L19c)",
+            "management": mg, "already_seen_by_the_old_project": seen.text()}
+    if done is not None and cached.get("hedged") is not None and cached.get("key") == key:
+        h = cached["hedged"]
+        return {**head, "already_run": True, "numbers": h["numbers"], "version_1_of_his_management": h["version_1"],
+                "by_year": h["by_year"], "trial": cached.get("hedged_trial"),
+                "version_budget": _budget(V.family(idea, rec["parent_idea"])),
+                "said": "already run - the same rule gives the same trades; not run again"}
+    sigs = signals_of(idea, rec, bench)
+    if not sigs:
+        raise Refused(f"{version} made no setup on {TUNE} - nothing to test (it still counts as proposed)")
+    moves = _read_cache(idea, version).get("moves") or {}
+    data = {"prices": config.GOLD_M1.relative_to(config.ROOT).as_posix(),
+            "gold_m1_content_sha256": bench.get("prices_hash")()}
+    out = bench.get("hedged")(sigs, rec["timeframe"], mg, idea_id=idea, version_id=version,
+                              parent_idea=rec.get("parent_idea"), moves=moves, data=data,
+                              note=f"L19c research: {idea} {version} - {rec['about']} (why: {rec['why']})")
+    inside_tune(f"the hedged test of {version}", out.first_bar, out.last_bar)
+    body = _read_cache(idea, version)
+    body.update(hedged={"numbers": _hedged_numbers(out.summary), "version_1": _hedged_numbers(out.version_1),
+                        "by_year": out.by_year},
+                hedged_trial=None if out.trial_path is None else _rel(out.trial_path))
+    _write_cache(idea, version, body)
+    return {**head, "already_run": False, "numbers": body["hedged"]["numbers"],
+            "version_1_of_his_management": body["hedged"]["version_1"], "by_year": out.by_year, "acted": out.acted,
+            "trial": body["hedged_trial"], "clock": "MT5 server time",
+            "version_budget": _budget(V.family(idea, rec["parent_idea"])),
+            "said": (f"tried on {TUNE} with his hedge. 'by_year' is this management minus version 1 of his management "
+                     "on the same signals. The referee's choice (write_report) judges the plain-stop versions; his "
+                     "management versions are listed beside it (L19d judges his whole strategy).")}
+
+
 def _walk_forward(idea: str, rec: dict, bench: Workbench) -> dict:
     """The versions of this idea that were run (here or by its tune), plus this one, judged by walk-forward inside
     2016-2020 - for each judge year the referee picks the version, on the years before it only."""
-    ran = {r["version_id"]: r for r in V.records(idea) if _tester_file(idea, r["version_id"]) is not None}
+    ran = {r["version_id"]: r for r in V.records(idea) if _tester_file(idea, r["version_id"]) is not None
+           and not MG.in_manager(r.get("changes") or {})}
     for vid in V.tuned_versions(idea):
         ran.setdefault(vid, version_record(idea, vid))
     ran[rec["version_id"]] = rec
@@ -607,7 +741,7 @@ def list_trials(idea: str) -> dict:
                      "check-opened.json names; 2024 on never")}
 
 
-KNOWN_KINDS = ("tester", "referee-tune", "referee", "referee-control", config.LEARNER_KIND)
+KNOWN_KINDS = ("tester", "referee-tune", "referee", "referee-control", config.LEARNER_KIND, MG_KIND)
 
 
 def _trial_row(idea: str, f: dict) -> dict:
@@ -632,6 +766,10 @@ def _trial_row(idea: str, f: dict) -> dict:
     row["note"] = f.get("note")
     if kind == "tester":
         row["numbers"] = _numbers(r)
+    elif kind == MG_KIND:                                  # a management version, with his hedge (L19c)
+        row.update(numbers=_hedged_numbers(r), version_1_of_his_management=_hedged_numbers(
+            r.get("version_1_of_his_management") or {}), by_year=r.get("by_year"),
+            management=(f.get("settings") or {}).get("management"))
     elif kind == "referee-tune":
         row["chosen"] = r.get("chosen")
         row["versions"] = {v: {k: x.get(k) for k in ("about", "trades", "per_trade", "net_inr", "per_year",
@@ -812,6 +950,14 @@ def write_report(idea: str, send: bool = False, bench: Workbench | None = None) 
     if fam["used"] > fam["budget"]:
         raise Refused(f"the {fam['root']} family has {fam['used']} versions, over the budget {fam['budget']}")
     log: list[str] = []
+    hedged = sorted(vid for vid, r in pool.items() if MG.in_manager(r.get("changes") or {}))
+    for vid in hedged:                                   # L19c: its plain-stop trades are its base version's
+        log.append(f"{vid} changes his management (T12) - judged with his hedge by run_version (its trial file), "
+                   "not in this plain-stop tune")
+        pool.pop(vid)
+    if not pool:
+        raise Refused(f"every version of {idea} changes his management: write_report chooses among plain-stop "
+                      "versions - propose one without exit.management changes (L19d judges his whole strategy hedged)")
     sigs = {vid: signals_of(idea, r, bench) for vid, r in pool.items()}
     empty = sorted(vid for vid, s in sigs.items() if not s)
     for vid in empty:
@@ -858,11 +1004,12 @@ def write_report(idea: str, send: bool = False, bench: Workbench | None = None) 
     built = bench.get("build")(idea)
     out = {"idea": idea, "chosen": tuned.chosen, "versions_tuned": len(sigs), "judged": judged,
            "report_text": built.text, "page": _rel(built.page_path), "picture": _rel(built.picture["path"]),
-           "tune_trial": None if tuned.trial_path is None else _rel(tuned.trial_path),
+           "tune_trial": None if tuned.trial_path is None else _rel(tuned.trial_path), "management_versions": hedged,
            "version_budget": _budget(V.family(idea, parent)), "log": log, "sent": False}
     if send:
         line = bench.get("send")(built)
-        _advance(idea, "REPORTED", f"L14.1: report sent ({line['id']})", "T6: Tejas reads the report and decides")
+        _advance(idea, "REPORTED", f"L14.1: report sent ({line['id']})",
+                 "the machine: its choice after the report (LEARNED #162 - it decides and tells him)")
         out["sent"] = line["id"]
     return out
 
@@ -905,6 +1052,8 @@ def choose_slices(idea: str, slices: list, why: str) -> dict:
 # the research agent's PLANNING tools (L14.2, `python -m machine.mcp --plan`): reading only - no tool that proposes,
 # runs, draws, reports or shows a trial file
 PLAN_TOOLS = ("get_idea", "list_blocks", "search_docs")
+# the planning tools for his WHOLE strategy (L19d, `python -m machine.mcp --strategy-plan`): reading only
+STRATEGY_PLAN_TOOLS = ("get_strategy", "list_blocks", "search_docs")
 
-TOOLS = {f.__name__: f for f in (get_idea, list_blocks, search_docs, propose_version, run_version, list_trials,
-                                  draw_chart, write_report, choose_slices)}
+TOOLS = {f.__name__: f for f in (get_idea, list_blocks, search_docs, get_strategy, propose_version, run_version,
+                                  list_trials, draw_chart, write_report, choose_slices)}

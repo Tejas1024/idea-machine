@@ -159,8 +159,13 @@ _CHANGEABLE = {
         "old/ml/agent/manager.py DEFAULTS ath_room", options=(True, False), t12="M08", used_by="L19a",
         aliases=("ath_room",)),
     "how_many_covers_allowed": _s(
-        4, "Claude (his spec: max_hedge_legs = TUNE)", "test", "How many times the other side may open in one trade.",
-        "old/ml/agent/manager.py DEFAULTS max_hedges", t12="M21", used_by="L19a", aliases=("max_hedges",)),
+        None, "Claude (his spec: max_hedge_legs = TUNE, no number anywhere; None = no cap = what L19a ran - the old 4 "
+        "only fed the escape, which is off)", "test",
+        "How many times the other side may open in one trade. None = no cap (version 1). N = after N hedges, the next "
+        "time price reaches the hedge price the open leg CLOSES there - a real stop (Claude's reading of 'max legs = "
+        "capped': strategy.md section 11 gives no rule for what happens at the cap; four-boxes B3-12: 2 ... 10).",
+        "old/ml/agent/manager.py DEFAULTS max_hedges = 4", options=(None, *range(1, 11)), t12="M21",
+        used_by="L19a, L19c", aliases=("max_hedges",)),
     # ---- closing ------------------------------------------------------------------------------------------------
     "how_far_before_any_leg_may_close": _s(
         4.0, "Tejas #108", "his",
@@ -177,8 +182,13 @@ _CHANGEABLE = {
         "old/ml/agent/manager.py DEFAULTS hedged_whole", options=("trade", "leg"), t12="M17", used_by="L19a",
         aliases=("hedged_whole",)),
     "close_the_losing_leg_when_a_trend_runs": _s(
-        False, "Tejas #19, #51 (parked: 'that will come later')", "test",
-        "Trend escape: close the losing leg when a trend runs against a covered trade. OFF until it is measured.",
+        False, "Tejas #19, #51 (parked: 'that will come later'); the trigger is his strategy-code.md section 18 'GRID "
+        "ESCAPE'", "test",
+        "Trend escape (strategy-code.md section 18: 'if HTF trending + trendline + proper liquidity taken -> close the "
+        "LOSING leg at a loss, let the hedge run'). OFF = version 1 (parked until measured). True = while hedged, a full "
+        "setup of his the trend's way (proper liquidity taken) closes the leg it points against EVEN INSIDE the 1:4 "
+        "no-close zone - only when the hour AND the day are both that way (HTF trending) and a trendline of his on the "
+        "5-minute chart runs that way (Claude's reading of '+ trendline'); the leg left is that setup's trade (M15).",
         "old/ml/agent/manager.py DEFAULTS escape", options=(True, False), t12="M22", used_by="L19c",
         aliases=("escape",)),
     "what_the_leg_left_over_aims_at": _s(
@@ -494,8 +504,6 @@ _MORE = _table([
      "4 hours for a closing setup in the old test.", _MG + "DEFAULTS setup_wait", "L19a", ("setup_wait",)),
     ("rearm_adr", 0.10, "Claude", "test", "Distance before a hedge may be re-armed.", _MG + "DEFAULTS rearm_adr",
      "L19a", ("rearm_adr",)),
-    ("next_liquidity_max_adr", 2.5, "Claude (T12 M35)", "test", "How far ahead 'the next liquidity' may be.",
-     _MG + "DEFAULTS next_liq_adr", "L19a", ("next_liq_adr",)),
     ("runner_tolerance_adr", 2.0, "Claude ('his rule, my number')", "test",
      "How near the escaped runner an opposite setup must arm to count.", _MG + "DEFAULTS runner_tol_adr", "L19c",
      ("runner_tol_adr",)),
@@ -534,40 +542,16 @@ _MORE = _table([
     ("news_tiny_loss_adr", 0.05, "Claude (only for the retired #52 reading)", "test",
      "'A tiny loss' at news, as a share of a day's range.", _MG + "DEFAULTS news_tiny_adr", "L19a",
      ("news_tiny_adr",)),
-    ("news_minutes_before", 15, "Claude (T12 M28: how many minutes before = test)", "test",
-     "Minutes before the news when the news rule acts.", _MG + "DEFAULTS news_lead_min", "L19a",
-     ("news_lead_min",)),
-    ("news_events", "forex_factory_red_and_orange", "Tejas (T7, inbox 2026-09-28-0017 and 0020)", "his",
-     "Which news counts: Forex Factory RED and ORANGE. The old engine used NFP + FOMC only.",
-     _MG + "news events = NFP + FOMC", "L12, L19a", ()),
     ("decide_at_entry", True, "Tejas #111, #17", "his", "Hedge-or-room is decided at entry.",
      _MG + "DEFAULTS decide_at_entry", "L19a", ("decide_at_entry",)),
-    ("halfway_reversal", "off", "open: 'halfway' is a word still open (four-boxes B2-05)", "test",
-     "Halfway reversal -> no hedge, re-enter lower. Off until the word is settled.", _MG + "DEFAULTS halfway, "
-     "halfway_frac = 0.50, halfway_once = True", "L19c", ("halfway", "halfway_frac", "halfway_once")),
-    ("trendline_hedge_pad_adr", 0.02, "Claude (T12 M27: how far past the line = test)", "test",
-     "How far past the line the moving hedge sits.", _MG + "DEFAULTS trail_cover_pad_adr", "L19a",
-     ("trail_cover_pad_adr",)),
-    ("trail_max_targets", 6, "Claude (T12 M35)", "test", "How many next targets trailing may walk.",
-     _MG + "DEFAULTS trail_max", "L19a", ("trail_max",)),
     ("floor", "off", "Tejas #53", "his", "No floor (the numbers below it are unused while it is off).",
      _MG + "DEFAULTS floor, floor_n = 4, floor_adr = 4.0", "L19a", ("floor", "floor_n", "floor_adr")),
-    ("close_one_side_early", False, "not in his words (his old EA, path 5; T12 M34)", "test",
-     "Close one side at a nearer level while the hedge stays open.", _MG + "DEFAULTS paired", "L19c", ("paired",)),
-    ("strong_zone_as_hedge_point", "off", "Claude (T12 M31)", "test",
-     "A strong zone as the hedge point for gap entries (readings 'nearer' / 'zone').",
-     _MG + "DEFAULTS hedge_zone, hedge_zone_adr = 1.5, hedge_zone_min = 2", "L19c",
-     ("hedge_zone", "hedge_zone_adr", "hedge_zone_min")),
-    ("in_a_zone_against_you", "off", "Tejas strategy.md section 6 (T12 M32: test 'small' / 'avoid')", "test",
-     "In a higher-timeframe zone against you -> aim small / avoid.", _MG + "DEFAULTS zone_block", "L19c",
-     ("zone_block",)),
-    ("zone_flip_in_management", "keep", "Claude", "test", "What the manager does with a flipped zone.",
+    ("zone_flip_in_management", "keep", "Claude", "test", "What the manager does with a flipped zone. Read by no "
+     "code: the zones' flip is the block's own rule (L6b.2, #77, #78) - machine/tester/management.py RETIRED.",
      _MG + "DEFAULTS zone_flip", "L19c", ("zone_flip",)),
-    ("exit_on_opposite_setup_unhedged", "off", "Claude", "test", "An opposite setup closes an unhedged trade.",
-     _MG + "DEFAULTS opp_exit", "L19c", ("opp_exit",)),
-    ("double_profit_reentry", "off", "Tejas strategy.md section 3, 10 ('we will backtest later', T12 M30)", "test",
-     "Book at a zone before the target, then re-enter (double profit).", _MG + "DEFAULTS dbl, dbl_min = 2, "
-     "dbl_wait = 0", "L19c", ("dbl", "dbl_min", "dbl_wait")),
+    ("exit_on_opposite_setup_unhedged", "off", "Claude", "test", "An opposite setup closes an unhedged trade. Read by "
+     "no code: his rule for it is the trailing one (M23, 'unless an opposite setup forms there') - "
+     "machine/tester/management.py RETIRED.", _MG + "DEFAULTS opp_exit", "L19c", ("opp_exit",)),
     # ---- the new machine's own -----------------------------------------------------------------------------------
     ("adr_ruler_days", 10, "Claude", "test",
      "'A day's range' - the ruler for every number written as a share of a day - is his 10-day ADR on broker days "
@@ -657,7 +641,7 @@ _MORE.update({
         2, "Claude (the old manager's dbl_min = the hour chart - his strategy.md section 3 '1h stronger')", "test",
         "The double-profit re-entry (strategy.md sections 3, 10) books at a zone of at least this rank standing "
         "between the entry and the target: 0 = any window, 1 = week or hour, 2 = the hour chart only.",
-        _MG + "DEFAULTS dbl_min = 2", used_by="L6b.2, L19c"),
+        _MG + "DEFAULTS dbl_min = 2", options=(0, 1, 2), t12="M30", used_by="L6b.2, L19c", aliases=("dbl_min",)),
 })
 # ---- L6b.4: the 1-minute layer (machine/blocks/one_minute.py) - his #100 "the same apply for one minute" -------------
 _MORE.update({
@@ -702,6 +686,126 @@ _MORE.update({
         "lines inside it - a triangle's lines among them - when the market has 1-minute bars; the first one taken "
         "(flat level or line) is the take the 5-minute gap follows. False = his 5-minute levels only (L6b.2).",
         "new (L6b.4)", options=(True, False), used_by="L6b.4"),
+})
+
+# ---- L19c: his management rules that are a TEST in his table (plan/work/management-decisions.md, T12) --------------
+# Each one is run by the hedging tester (machine/tester/hedging.py) in every value listed, and a research version may
+# set it in exit.management (machine/tester/management.py VERSIONS says which, and why). Version 1 = the first value
+# = what the hedging tester did before L19c, so every number made before stays the same.
+_MORE.update({
+    "a_real_stop_instead_of_the_hedge": _s(
+        "never", "Tejas #17 ('sometimes a real stop is better ... the model should define when'): version 1 = his rule, "
+        "the hedge (M01); the other readings = four-boxes B3-11 ('stop vs hedge, per kind of setup')", "test",
+        "never = the hedge is the protection (his rule, M01). when_small = a trade whose hedge distance at entry is at "
+        "most a_small_hedge_is_within_adr of a day's range gets a REAL stop at its hedge point instead (#17: 'a very "
+        "small stop'). always = every trade of this kind (this idea) gets a real stop there. A real stop is never moved "
+        "(no room); a trade on a real stop is not hedged at news either - it closes in profit, else the stop protects.",
+        "new (L19c): the old manager had no real stop", options=("never", "when_small", "always"), t12="M02",
+        used_by="L19c"),
+    "a_small_hedge_is_within_adr": _s(
+        0.10, "Claude (#17 'a very small stop' gave no number)", "test",
+        "For a_real_stop_instead_of_the_hedge = when_small: 'small' = a hedge distance at entry of at most this share "
+        "of a day's range.", "new (L19c)", t12="M02", used_by="L19c"),
+    "on_a_friday": _s(
+        "as_any_day", "Tejas strategy.md section 11 ('Decide hedge-or-not AT ENTRY (esp. Friday)'); the readings are "
+        "four-boxes B3-13 ('on Friday: room / hedge / skip')", "test",
+        "as_any_day = a Friday entry is decided like any other (version 1). room = a trade filled on a Friday (MT5 "
+        "server time) always gets room - the hedge waits at the next liquidity. hedge = it never gets room - the hedge "
+        "waits at the hedge point. ('skip' is not a value: not trading on Fridays keeps only some setups - a weekday "
+        "SLICE, dimension 9, chosen before running.)",
+        "new (L19c)", options=("as_any_day", "room", "hedge"), t12="M09", used_by="L19c"),
+    "trail_when_hour_and_day_split": _s(
+        "first_target", "Claude (his #82 / #133 say 'with' and 'against' only; the old code took the first target)",
+        "test",
+        "Trailing when the hour and the day DISAGREE: first_target = close at the first target (the safer side, version "
+        "1). hold = trail as if they were with the trade (to the next liquidity, unless an opposite setup forms there).",
+        "old/ml/agent/manager.py: trail 'hd', split -> the first target", options=("first_target", "hold"), t12="M24",
+        used_by="L19c"),
+    "news_minutes_before": _s(
+        15, "Claude (T12 M28: how many minutes before = test; four-boxes B3-22)", "test",
+        "Minutes before the news when the news rule acts.", _MG + "DEFAULTS news_lead_min", t12="M28",
+        used_by="L19a, L19c", aliases=("news_lead_min",)),
+    "news_events": _s(
+        "forex_factory_red_and_orange", "Tejas (T7, inbox 2026-09-28-0017 and 0020: red AND orange = version 1); his "
+        "#142: 'I want you to machine to verify that ... come up with the best thing' - red only is the version to "
+        "compare (four-boxes B3-29)", "test",
+        "Which news counts: Forex Factory RED and ORANGE (version 1), or RED only. The old engine used NFP + FOMC only.",
+        _MG + "news events = NFP + FOMC", options=("forex_factory_red_and_orange", "forex_factory_red"), t12="M28",
+        used_by="L12, L19a, L19c"),
+    "halfway_reversal": _s(
+        "off", "open: 'halfway' is a word still open (four-boxes B2-05, waiting in the weekly picture batch)", "test",
+        "Halfway reversal -> no hedge, re-enter lower. Off until the word is settled: the old project's two readings "
+        "(noh / reenter, at halfway to the target or to the hedge point) become versions after his answer.",
+        _MG + "DEFAULTS halfway, halfway_frac = 0.50, halfway_once = True", options=("off",), t12="M29",
+        used_by="L19c (after B2-05)", aliases=("halfway", "halfway_frac", "halfway_once")),
+    "trendline_hedge_pad_adr": _s(
+        None, "Claude (T12 M27 / four-boxes B3-16: 'a few pips' past the line = test). None = where the line counts as "
+        "broken (line_break_tolerance x line_touch_adr = 0.05 of a day's range) - what L6b.1 built; the old manager's "
+        "pad was 0.02", "test",
+        "How far past the line the trendline touch entry's hedge sits (it then moves with the line, M27), as a share of "
+        "a day's range. None = the line's own break distance (version 1).",
+        _MG + "DEFAULTS trail_cover_pad_adr = 0.02", t12="M27", used_by="L6b.1, L19c", aliases=("trail_cover_pad_adr",)),
+    "trail_max_targets": _s(
+        6, "Claude (T12 M35; four-boxes B3-26)", "test", "How many next targets trailing may walk.",
+        _MG + "DEFAULTS trail_max", t12="M35", used_by="L19a, L19c", aliases=("trail_max",)),
+    "next_liquidity_max_adr": _s(
+        2.5, "Claude (T12 M35; four-boxes B3-26)", "test",
+        "How far ahead 'the next liquidity' may be (room, trailing, the leg left's target), in days of range.",
+        _MG + "DEFAULTS next_liq_adr", t12="M35", used_by="L19a, L19c", aliases=("next_liq_adr",)),
+    "close_one_side_early": _s(
+        False, "not in his words (his old EA, path 5; T12 M34)", "test",
+        "Close one side at a nearer level while the hedge stays open. NOT a version: a close at a level on its own is "
+        "what his M10 forbids ('never at the next level on its own', #47, #113) - machine/tester/management.py.",
+        _MG + "DEFAULTS paired", options=(False,), t12="M34", used_by="L19c", aliases=("paired",)),
+    "strong_zone_as_hedge_point": _s(
+        "off", "Tejas strategy.md section 3 ('hedge point' is one of a zone's uses) - the readings are Claude's (the old "
+        "manager's two) + the zone grid's (strategy-code.md section 17, T12 M33 / four-boxes B3-10)", "test",
+        "The FIRST hedge at a strong zone against the trade (live at the fill, at least strong_zone_hedge_rank, its edge "
+        "within strong_zone_hedge_max_adr of a day's range): off = his hedge point only (version 1). nearer = whichever "
+        "price comes first - the hedge point (after room) or the zone's near edge. zone = the zone's near edge is the "
+        "hedge price. zone_break = the zone's FAR edge: the hedge opens when price breaks through the zone (the zone "
+        "grid, M33).",
+        _MG + "DEFAULTS hedge_zone", options=("off", "nearer", "zone", "zone_break"), t12="M31", used_by="L19c",
+        aliases=("hedge_zone",)),
+    "strong_zone_hedge_max_adr": _s(
+        1.5, "Claude (the old manager's hedge_zone_adr)", "test",
+        "For strong_zone_as_hedge_point: the zone's edge at most this many days of range from the entry.",
+        _MG + "DEFAULTS hedge_zone_adr = 1.5", t12="M31", used_by="L19c", aliases=("hedge_zone_adr",)),
+    "strong_zone_hedge_rank": _s(
+        2, "Tejas strategy.md section 3 ('1h stronger': the hour chart = 2, his 'strong'); the old manager's "
+        "hedge_zone_min", "test",
+        "For strong_zone_as_hedge_point: the zone's rank at least this (0 = any window, 1 = week or hour, 2 = the hour "
+        "chart).", _MG + "DEFAULTS hedge_zone_min = 2", options=(0, 1, 2), t12="M31", used_by="L19c",
+        aliases=("hedge_zone_min",)),
+    "in_a_zone_against_you": _s(
+        "off", "Tejas strategy.md section 6 ('in a HTF zone against you -> aim small / avoid'; T12 M32, four-boxes "
+        "B3-04)", "test",
+        "off = version 1. small = when an hour-chart zone (settings zone_hour_chart_rank) stands between the entry and the "
+        "target at the fill, the target is cut back to that zone's near edge (he books in front of it). ('avoid' is not "
+        "a value: not taking the trade keeps only some setups - a place SLICE, dimension 8, chosen before running.)",
+        _MG + "DEFAULTS zone_block", options=("off", "small"), t12="M32", used_by="L19c", aliases=("zone_block",)),
+    "double_profit_reentry": _s(
+        "off", "Tejas strategy.md sections 3, 10 ('book profit at a zone before the target; double-profit re-entry'; "
+        "#82 'we will backtest later'; T12 M30, four-boxes B3-09) - WHERE he gets back in is not in his words: the "
+        "three readings are the old manager's", "test",
+        "off = version 1. Otherwise, while one leg is open and not hedged, a zone of at least double_profit_zone_rank "
+        "standing between the entry and the target (zones.in_path, at the fill) is booked at: the leg closes at its near "
+        "edge (the first profit). Back in, in the same direction, once: retest = when price comes back to that price; "
+        "break = when price goes through the zone's far edge; setup = at the fill of the next setup of his that way. "
+        "The leg back in keeps the trade's target and hedge price. If price reaches the target or the hedge price first, "
+        "the trade ends with the one profit (Claude's: his words give no end to the wait).",
+        _MG + "DEFAULTS dbl, dbl_min = 2, dbl_wait = 0", options=("off", "retest", "break", "setup"), t12="M30",
+        used_by="L19c", aliases=("dbl", "dbl_wait")),
+})
+# ---- L6-new: the break of his ADR zone (idea #4, #76; machine/blocks/premium_discount.py breaks) ----------------------
+_MORE.update({
+    "adr_break_beyond_adr": _s(
+        0.0, "Claude (#76 'if it breaks the lower range of ADR, lower zone, it will go further low' gives no "
+        "distance; 'keeps going' is the machine's to find, #154)", "test",
+        "A break of his ADR zone = a 5-minute candle CLOSES beyond the zone's far edge (below the green zone's bottom, "
+        "above the red zone's top) by at least this share of a day's range. 0 = any close beyond; a wick is never a "
+        "break (his zone rule, rules.py what_a_real_zone_break_is: 'tiny wicks are not considered').",
+        "new (L6-new): the old engine had no ADR zone break", used_by="L6-new"),
 })
 
 MORE: Mapping[str, Setting] = MappingProxyType(_MORE)
