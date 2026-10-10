@@ -135,7 +135,7 @@ Every year loses about the ₹40 cost a trade, because there is nothing to find.
 
 ## Results so far (on real gold, 2016–2023)
 
-Every number below comes from a trial file in the private repo. There is one file per test run (236 so far,
+Every number below comes from a trial file in the private repo. There is one file per test run (235 so far,
 10 Oct 2026), so every try is counted. Money is in rupees at 0.01 lot, after the ₹40 cost per position.
 
 **The trader's ideas.** Each one went through the same path: his words → a checked form → 3 example setups he
